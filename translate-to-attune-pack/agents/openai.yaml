@@ -1,0 +1,4 @@
+interface:
+  display_name: Translate to Attune Pack
+  short_description: Translate automation resources into Attune packs
+  default_prompt: Use $translate-to-attune-pack to convert these automation resources into an Attune pack.

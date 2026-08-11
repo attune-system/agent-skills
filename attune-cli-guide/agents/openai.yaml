@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune CLI Guide
+  short_description: Use Attune CLI and MCP commands safely
+  default_prompt: Use $attune-cli-guide to construct or troubleshoot the required Attune CLI commands.

@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Pack Test Reviewer
+  short_description: Validate and harden Attune packs before release
+  default_prompt: Use $attune-pack-test-reviewer to validate and harden this Attune pack.

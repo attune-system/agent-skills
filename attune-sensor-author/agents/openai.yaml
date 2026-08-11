@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Sensor Author
+  short_description: Build reliable Attune sensors and trigger contracts
+  default_prompt: Use $attune-sensor-author to create or troubleshoot this Attune sensor.

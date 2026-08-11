@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Workflow Author
+  short_description: Author and troubleshoot Attune workflow graphs
+  default_prompt: Use $attune-workflow-author to create or troubleshoot this Attune workflow.

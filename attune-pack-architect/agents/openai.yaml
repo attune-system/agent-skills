@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Pack Architect
+  short_description: Design complete, maintainable Attune packs
+  default_prompt: Use $attune-pack-architect to design or review this Attune pack.

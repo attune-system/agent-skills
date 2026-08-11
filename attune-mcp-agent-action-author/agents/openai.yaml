@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune MCP Agent Action Author
+  short_description: Build least-privilege Attune MCP agent actions
+  default_prompt: Use $attune-mcp-agent-action-author to create or review this Attune MCP agent action.

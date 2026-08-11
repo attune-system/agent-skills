@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Action Author
+  short_description: Author Attune actions with secure runtime contracts
+  default_prompt: Use $attune-action-author to create or review this Attune action.

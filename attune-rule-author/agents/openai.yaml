@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Rule Author
+  short_description: Map Attune events into safe action parameters
+  default_prompt: Use $attune-rule-author to create or troubleshoot this Attune rule.
