@@ -189,13 +189,13 @@ Never log `ATTUNE_API_TOKEN`, raw parameter payloads, key values, passwords, or 
 
 ## Attune SDK snippets
 
-When an action is written in Python, Node.js, or Java, prefer the official Attune SDKs for stdin parsing, stdout JSON serialization, context access, and API clients instead of hand-rolled boilerplate:
+When an action is written in Python, Node.js, or Java, prefer the official Attune SDKs for stdin parsing, stdout JSON serialization, context access, and API clients instead of hand-rolled boilerplate. Declare the SDK by package name without a version so this guidance remains valid across compatible releases:
 
 | Runtime | SDK | Install |
 | --- | --- | --- |
 | Python | <https://github.com/attune-system/python-attune-sdk> | Distribution `attune-sdk`; `pip install attune-sdk`; import `attune`; 91 pytest tests pass, including generated OpenAPI contract tests in `test_api_client`, and sdist/wheel builds pass |
 | Node.js | <https://github.com/attune-system/js-attune-sdk> | Package `attune-sdk`; `npm install attune-sdk`; import `attune-sdk` or `attune-sdk/api_client`; 61 tests plus lint/build/package smoke/freshness checks pass; `npm audit` reports 0 vulnerabilities |
-| Java | <https://github.com/attune-system/java-attune-sdk> | Maven `io.attune:attune-sdk:0.1.0`; imports under `io.attune`; 31 JUnit tests pass |
+| Java | <https://github.com/attune-system/java-attune-sdk> | Maven coordinates `io.attune:attune-sdk`; imports under `io.attune`; 31 JUnit tests pass |
 
 For SDK-based actions, keep the action YAML conventions unchanged: use `parameter_delivery: stdin`, `parameter_format: json`, `output_format: json`, and grant `default_execution_permission_set_refs` only when the action needs Attune API access. The SDKs read the same `ATTUNE_*` environment variables documented above.
 

@@ -529,7 +529,6 @@ Registry index entry sketch:
     "workflows": []
   },
   "dependencies": {
-    "attune_version": ">=0.1.0",
     "packs": ["core"]
   }
 }
@@ -569,7 +568,7 @@ Component inventory table example:
 - [ ] Every component ref uses `<pack_ref>.<component_name>`.
 - [ ] Trigger/action/sensor/rule/workflow/queue dependencies respect loading order.
 - [ ] Runtime refs, `runner_type`, and optional `runtime_version` constraints are explicit.
-- [ ] Dependency files are at pack root and minimally pinned.
+- [ ] Dependency files are at pack root and declare SDKs and services without release-specific versions.
 - [ ] Runtime setup writes to `{env_dir}`, not pack directories.
 - [ ] Config schema separates defaults from secrets.
 - [ ] Key ownership and execution permission sets are documented.
