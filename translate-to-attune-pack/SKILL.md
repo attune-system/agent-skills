@@ -1,6 +1,6 @@
 ---
 name: translate-to-attune-pack
-description: Converts StackStorm packs, Ansible/AWX content, Rundeck jobs, Airflow DAGs, n8n workflows, AWS Step Functions, OpenAPI integrations, and similar orchestration resources into working Attune packs. Use when importing, porting, migrating, or translating external actions, workflows, sensors, triggers, rules, queues, credentials, or integration resources to Attune.
+description: Converts StackStorm packs, Ansible/AWX content, Rundeck jobs, Airflow DAGs, n8n workflows, AWS Step Functions, OpenAPI integrations, and similar orchestration resources into working Attune packs. Use when translating external automation to Attune.
 license: Apache-2.0
 compatibility: An Attune repository and CLI are recommended for final validation
 metadata:

@@ -315,8 +315,9 @@ enabled: true
 trigger_ref: example_pack.message_received
 action_ref: example_pack.send_message
 conditions:
-  channel:
-    equals: "ops"
+  - field: channel
+    operator: equals
+    value: ops
 action_params:
   channel: "ops"
   message: "Received {{ event.payload.text }}"

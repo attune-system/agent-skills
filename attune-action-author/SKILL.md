@@ -1,6 +1,6 @@
 ---
 name: attune-action-author
-description: Creates, reviews, and tests Attune pack actions with flat schemas, stdin parameter delivery, secure outputs, runtimes, SDKs, and least-privilege execution access. Use when adding or troubleshooting Attune action YAML and entrypoint scripts.
+description: Creates, reviews, and tests Attune pack actions with flat schemas, stdin parameter delivery, secure outputs, runtimes, SDKs, and least-privilege execution access. Use when authoring Attune action YAML and entrypoint scripts.
 license: Apache-2.0
 compatibility: Attune pack development; an Attune repository or CLI is optional but recommended for verification
 metadata:
@@ -195,7 +195,7 @@ When an action is written in Python, Node.js, or Java, prefer the official Attun
 | --- | --- | --- |
 | Python | <https://github.com/attune-system/python-attune-sdk> | Distribution `attune-sdk`; `pip install attune-sdk`; import `attune`; 91 pytest tests pass, including generated OpenAPI contract tests in `test_api_client`, and sdist/wheel builds pass |
 | Node.js | <https://github.com/attune-system/js-attune-sdk> | Package `attune-sdk`; `npm install attune-sdk`; import `attune-sdk` or `attune-sdk/api_client`; 61 tests plus lint/build/package smoke/freshness checks pass; `npm audit` reports 0 vulnerabilities |
-| Java | <https://github.com/attune-system/java-attune-sdk> | Maven coordinates `io.attune:attune-sdk`; imports under `io.attune`; 31 JUnit tests pass |
+| Java | <https://github.com/attune-system/java-attune-sdk> | Source coordinates `org.attunedev:attune-sdk:0.2.3`; imports under `io.attune`; build or use an attached release JAR until Maven repository publication; 31 JUnit tests pass |
 
 For SDK-based actions, keep the action YAML conventions unchanged: use `parameter_delivery: stdin`, `parameter_format: json`, `output_format: json`, and grant `default_execution_permission_set_refs` only when the action needs Attune API access. The SDKs read the same `ATTUNE_*` environment variables documented above.
 

@@ -1,6 +1,6 @@
 ---
 name: attune-workflow-author
-description: Creates, reviews, and troubleshoots Attune workflow actions using separate action metadata and graph YAML, canonical next transitions, typed templates, iteration, approvals, permissions, and placement. Use for Attune workflow authoring or migration.
+description: Creates, reviews, and troubleshoots Attune workflow actions using separate action metadata and graph YAML, canonical next transitions, typed templates, iteration, approvals, permissions, and placement. Use when authoring or migrating Attune workflows.
 license: Apache-2.0
 compatibility: Attune pack development; an Attune repository or CLI is recommended for workflow validation
 metadata:

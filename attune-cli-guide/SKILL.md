@@ -1,6 +1,6 @@
 ---
 name: attune-cli-guide
-description: Guides safe use of the attune and attune-mcp command-line tools for authentication, profiles, packs, workflows, executions, artifacts, keys, and MCP transport. Use when constructing or troubleshooting Attune CLI commands.
+description: Guides safe use of the attune and attune-mcp command-line tools for authentication, profiles, packs, workflows, executions, artifacts, keys, and MCP transport. Use when running Attune CLI commands.
 license: Apache-2.0
 compatibility: An installed attune or attune-mcp CLI; use installed --help output to resolve version differences
 metadata:

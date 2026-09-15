@@ -1,6 +1,6 @@
 ---
 name: attune-pack-test-reviewer
-description: Reviews, tests, and hardens Attune packs before upload, registration, or publication. Use when validating pack structure, metadata, refs, action contracts, event mappings, workflow graphs, queue dispatch, tests, and secret safety.
+description: Reviews, tests, and hardens Attune packs before upload, registration, or publication. Use when validating a pack before publication.
 license: Apache-2.0
 compatibility: Attune pack development; the attune CLI is recommended for pack check and pack test validation
 metadata:

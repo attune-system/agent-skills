@@ -244,13 +244,13 @@ the controlled restart.
 
 ## Attune SDK snippets
 
-The recorded Python and JavaScript working trees implement numeric targeted-by-default emission and canonical notifier WebSocket lifecycle handling. The Java working tree implements the same targeting default but not notifier WebSocket lifecycle handling. These behaviors are unit/contract verified but have not been run end to end against a clean Attune API environment. Declare the SDK by package name without a version so this guidance remains valid across compatible releases.
+The Python, JavaScript, and Java SDKs implement numeric targeted-by-default emission and notifier WebSocket lifecycle handling. These behaviors are unit/contract verified but have not been run end to end against a clean Attune API environment. Declare the SDK by package name without a version so this guidance remains valid across compatible releases.
 
 | Runtime | SDK | Install |
 | --- | --- | --- |
 | Python | <https://github.com/attune-system/python-attune-sdk> | Distribution `attune-sdk`; `pip install "attune-sdk[sensor]"`; import `attune`; 91 pytest tests pass, including generated OpenAPI contract tests in `test_api_client`, and sdist/wheel builds pass |
 | Node.js | <https://github.com/attune-system/js-attune-sdk> | Package/import `attune-sdk`; `npm install attune-sdk`; 61 tests plus lint/build/package smoke/freshness checks pass; `npm audit` reports 0 vulnerabilities |
-| Java | <https://github.com/attune-system/java-attune-sdk> | Maven coordinates `io.attune:attune-sdk`; 31 JUnit tests pass; notifier WebSocket lifecycle unsupported and legacy MQ consumer disabled |
+| Java | <https://github.com/attune-system/java-attune-sdk> | Source coordinates `org.attunedev:attune-sdk:0.2.3`; build or use an attached release JAR until Maven repository publication; 31 JUnit tests pass; notifier WebSocket lifecycle supported and legacy MQ consumer disabled |
 
 Keep sensor YAML conventions unchanged: set `runner_type`, optional `runtime_version`, `entry_point`, and `trigger_types`. A compatible SDK must read the core sensor environment and consume `ATTUNE_NOTIFIER_WS_URL`; do not infer compatibility merely because it reads MQ variables.
 
