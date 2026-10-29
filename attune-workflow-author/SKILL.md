@@ -1,737 +1,202 @@
 ---
 name: attune-workflow-author
-description: Creates, reviews, and troubleshoots Attune workflow actions using separate action metadata and graph YAML, canonical next transitions, typed templates, iteration, approvals, permissions, and placement. Use when authoring or migrating Attune workflows.
+description: Authors and reviews Attune two-file workflows, canonical transitions, joins, typed templates, iteration, inquiry waits, dynamic action ceilings, permissions, and placement. Use when creating or migrating workflow graphs.
 license: Apache-2.0
-compatibility: Attune pack development; an Attune repository or CLI is recommended for workflow validation
+compatibility: Verify inquiry, named-schema, and recorded-authority support against the target Attune revision
 metadata:
   target: attune-workflow
 ---
 
-# Attune Workflow Author
+# Attune workflow author
 
-## Mission
+Produce action metadata plus a separate graph. Preserve execution semantics, not just YAML syntax. Establish inputs/outputs, action contracts, success/failure/timeout behavior, concurrency, cancellation, permissions, and deployment revision before writing the graph.
 
-Attune Workflow Author is an AI agent persona for helping pack developers design, write, review, and troubleshoot Attune workflow actions and workflow YAML. It should be useful even when copied into a workspace that does not contain the Attune repository.
+Use `attune-cache-author` for namespace mode/publication design and `attune-permission-set-author` for grants/delegation. This skill owns how workflow tasks consume their contracts, not the full cache or RBAC metadata manuals.
 
-For new workflows, produce two pack files:
+## Documentation
 
-- `actions/<name>.yaml`: the workflow action's metadata and `workflow_file` pointer.
-- `actions/workflows/<name>.workflow.yaml`: the graph-only workflow definition.
+- [Writing workflows](https://docs.attunedev.org/pack-development/workflows/)
+- [Composing actions](https://docs.attunedev.org/pack-development/composing-actions/)
+- [Cache iteration](https://docs.attunedev.org/pack-development/cache-iteration/)
+- [YAML reference](https://docs.attunedev.org/reference/yaml/)
+- [Permissions](https://docs.attunedev.org/administration/permissions-and-rbac/)
 
-Optimize for current Attune conventions, not generic YAML and not old StackStorm examples.
+Public workflow examples can lag current inquiry and managed-admission behavior. Check `crates/common/src/workflow/parser.rs`, `crates/executor/src/scheduler.rs`, `crates/executor/src/workflow/context.rs`, and [inquiry handling](https://github.com/attune-system/attune/blob/main/docs/workflows/inquiry-handling.md). `core.ask` and its intrinsic launch were removed in current source; use action-owned inquiries and `wait_for.inquiry`, not the old scheduler-intercept example.
 
-## When to Use
+## Two-file layout
 
-Use this persona when a developer asks to:
-
-- Create a new workflow action for an Attune pack.
-- Convert a sequence of actions into a workflow graph.
-- Refactor legacy workflow YAML into Attune's current action-linked layout.
-- Add branching, retries, timeouts, fan-out, approvals, task permissions, or worker placement.
-- Review workflow YAML before pack upload or registration.
-- Explain workflow context, task results, pack config, keystore values, or type-preserving templates.
-
-Do not use it for Rust executor internals, API route changes, sensor implementation, or non-workflow action implementation except where action input/output contracts affect the workflow.
-
-## Minimum Context to Gather
-
-If some items are missing, make explicit placeholders and assumptions.
-
-1. Pack ref and pack directory, for example `packs/deployments`.
-2. Workflow action name, full action ref, label, description, tags, and enabled state.
-3. Triggering mode: manual execution, rule-triggered, queue-dispatched, or called by another workflow.
-4. Input parameters and output contract, using Attune's flat schema style.
-5. Ordered task list: action refs, inputs, expected result shapes, failure behavior, retries, and timeouts.
-6. Branching needs: success, failure, timeout, unconditional, and custom expression conditions.
-7. Data flow: what each task publishes into `workflow.*` and what `output_map` returns.
-8. Whether human approval/input is required with `core.ask`.
-9. Whether iteration uses an in-context array with `with_items` or a Data Cache
-   with `iterate_cache`, including item shape, batch size, scan page size,
-   freshness, and `concurrency`.
-10. Execution-token needs via task `permission_set_refs`.
-11. Worker placement needs: `worker_selector`, `worker_tolerations`, or `worker_affinity`.
-12. Pack configuration and keystore keys referenced by templates.
-
-## Self-Contained Attune Workflow Conventions
-
-### File layout
-
-For new action-linked workflows, write these two files:
-
-```text
-packs/<pack_ref>/actions/<name>.yaml
-packs/<pack_ref>/actions/workflows/<name>.workflow.yaml
-```
-
-In the action YAML, `workflow_file` is relative to the `actions/` directory, so the usual value is `workflows/<name>.workflow.yaml`.
-
-The graph file should be graph-only. Do not repeat action-level `ref`, `label`, `description`, `parameters`, `output`, or `tags` in `actions/workflows/<name>.workflow.yaml` unless you are intentionally maintaining a standalone legacy workflow.
-
-### Workflow action YAML
-
-Workflow actions are orchestrated by the executor. They should not set `runner_type`, `entry_point`, `parameter_delivery`, or `output_format`. The pack loader links the action to the workflow definition through `workflow_file`, stores the workflow file path as the entrypoint internally, and gives the action no runtime.
+`actions/process_items.yaml`:
 
 ```yaml
-# packs/deployments/actions/deploy_app.yaml
-ref: deployments.deploy_app
-label: "Deploy App"
-description: "Validate, approve, and deploy an app to one or more regions"
-enabled: true
-workflow_file: workflows/deploy_app.workflow.yaml
-
+ref: example.process_items
+label: Process items
+description: Process a bounded list and report completion
+workflow_file: workflows/process_items.workflow.yaml
+timeout_seconds: 900
+reference_visibility: private
 parameters:
-  app_name:
-    type: string
-    required: true
-    description: "Application name"
-  version:
-    type: string
-    required: true
-  environment:
-    type: string
-    enum: [dev, staging, production]
-    default: dev
-  regions:
+  items:
     type: array
+    items: {type: string}
     required: true
-    items:
-      type: string
-  approver_identity_id:
-    type: integer
-    description: "Identity id assigned to approve production deployments"
-
 output:
-  status:
-    type: string
-  deployed_regions:
-    type: array
-  approved:
-    type: boolean
-
-tags:
-  - workflow
-  - deployment
+  processed:
+    type: integer
 ```
 
-Use `output`, not `output_schema`, for new action-linked workflow metadata. Some older in-repo examples use `output_schema`; do not copy that into new workflow actions unless the target pack already depends on it.
-
-Workflow actions can also declare `reference_visibility` and `reference_allowed_pack_refs`. The current CLI `workflow upload` carries either field when present in the action YAML. On update, omission preserves that field's existing value, while an explicit `reference_allowed_pack_refs: []` clears the existing allowlist. On create, omitted reference fields use public visibility and an empty allowlist.
-
-### Graph-only workflow YAML
-
-The graph file contains `version`, optional `vars`, `tasks`, optional `output_map`, and optional `cancellation_policy`.
-
-`cancellation_policy` is `allow_finish` by default: running children finish, pending children are cancelled, and no new tasks dispatch. `cancel_running` also cancels running children. Visual-builder/API graph serialization preserves this graph field.
+`actions/workflows/process_items.workflow.yaml`:
 
 ```yaml
-# packs/deployments/actions/workflows/deploy_app.workflow.yaml
-version: "1.0.0"
+version: "1.0"
 cancellation_policy: cancel_running
-
 vars:
-  approved: false
-  deployed_regions: []
-  validation_summary: null
-  final_status: not_started
-
+  processed: 0
 tasks:
-  - name: validate
-    action: deployments.validate_release
+  - name: process
+    action: example.process_one
+    with_items: "{{ parameters.items }}"
+    concurrency: 2
     input:
-      app_name: "{{ parameters.app_name }}"
-      version: "{{ parameters.version }}"
-      environment: "{{ parameters.environment }}"
+      item_id: "{{ item }}"
+    timeout: 120
     retry:
       count: 2
       delay: 5
-      backoff: constant
+      backoff: exponential
+      max_delay: 30
     next:
       - when: "{{ succeeded() }}"
         publish:
-          - validation_summary: "{{ result().data.summary }}"
-        do:
-          - maybe_approve
-      - when: "{{ failed() }}"
-        publish:
-          - final_status: validation_failed
-        do:
-          - fail_workflow
-      - when: "{{ timed_out() }}"
-        publish:
-          - final_status: validation_timed_out
-        do:
-          - fail_workflow
-
-  - name: maybe_approve
-    action: core.noop
-    input:
-      message: "Validation complete for {{ parameters.app_name }}"
-    next:
-      - when: "{{ succeeded() and parameters.environment == 'production' }}"
-        do:
-          - ask_for_approval
-      - when: "{{ succeeded() and parameters.environment != 'production' }}"
-        publish:
-          - approved: true
-        do:
-          - check_regions
-      - when: "{{ failed() }}"
-        publish:
-          - final_status: preparation_failed
-        do:
-          - fail_workflow
-      - when: "{{ timed_out() }}"
-        publish:
-          - final_status: preparation_timed_out
-        do:
-          - fail_workflow
-
-  - name: ask_for_approval
-    action: core.ask
-    input:
-      prompt: "Approve production deployment of {{ parameters.app_name }} {{ parameters.version }}?"
-      assigned_to: "{{ parameters.approver_identity_id }}"
-      response_schema:
-        approved:
-          type: boolean
-          required: true
-        note:
-          type: string
-    timeout: 3600
-    next:
-      - when: "{{ succeeded() and result().response.approved == true }}"
-        publish:
-          - approved: true
-        do:
-          - check_regions
-      - when: "{{ succeeded() and result().response.approved != true }}"
-        publish:
-          - final_status: rejected
-        do:
-          - report_rejected
-      - when: "{{ timed_out() }}"
-        publish:
-          - final_status: approval_timed_out
-        do:
-          - fail_workflow
-      - when: "{{ failed() }}"
-        publish:
-          - final_status: approval_failed
-        do:
-          - fail_workflow
-
-  - name: check_regions
-    action: core.noop
-    input:
-      message: "Checking deployment region count"
-    next:
-      - when: "{{ succeeded() and length(parameters.regions) > 0 }}"
-        do:
-          - deploy_regions
-      - when: "{{ succeeded() and length(parameters.regions) == 0 }}"
-        publish:
-          - final_status: no_regions
-        do:
-          - report_no_regions
-      - when: "{{ failed() }}"
-        publish:
-          - final_status: preparation_failed
-        do:
-          - fail_workflow
-      - when: "{{ timed_out() }}"
-        publish:
-          - final_status: preparation_timed_out
-        do:
-          - fail_workflow
-
-  - name: deploy_regions
-    action: deployments.deploy_region
-    with_items: "{{ parameters.regions }}"
-    concurrency: 2
-    permission_set_refs:
-      - standard
-    input:
-      app_name: "{{ parameters.app_name }}"
-      version: "{{ parameters.version }}"
-      environment: "{{ parameters.environment }}"
-      region: "{{ item }}"
-      item_index: "{{ index }}"
-    next:
-      - when: "{{ succeeded() }}"
-        publish:
-          - deployed_regions: "{{ parameters.regions }}"
-        do:
-          - summarize
-      - when: "{{ failed() }}"
-        publish:
-          - final_status: deployment_failed
-        do:
-          - rollback
-      - when: "{{ timed_out() }}"
-        publish:
-          - final_status: deployment_timed_out
-        do:
-          - rollback
-
-  - name: summarize
-    action: core.echo
-    input:
-      message: "Deployment complete for {{ parameters.app_name }}"
-    next:
-      - when: "{{ succeeded() }}"
-        publish:
-          - final_status: success
-      - when: "{{ failed() }}"
-        publish:
-          - final_status: summary_failed
-        do:
-          - fail_workflow
-      - when: "{{ timed_out() }}"
-        publish:
-          - final_status: summary_timed_out
-        do:
-          - fail_workflow
-
-  - name: rollback
-    action: deployments.rollback
-    with_items: "{{ parameters.regions }}"
-    concurrency: 2
-    input:
-      app_name: "{{ parameters.app_name }}"
-      region: "{{ item }}"
-    next:
-      - when: "{{ succeeded() }}"
-        publish:
-          - final_status: rollback_succeeded
-        do:
-          - fail_workflow
-      - when: "{{ failed() }}"
-        publish:
-          - final_status: rollback_failed
-        do:
-          - fail_workflow
-      - when: "{{ timed_out() }}"
-        publish:
-          - final_status: rollback_timed_out
-        do:
-          - fail_workflow
-
-  - name: report_rejected
-    action: core.echo
-    input:
-      message: "Deployment was not approved"
-    next:
-      - when: "{{ failed() }}"
-        publish:
-          - final_status: rejection_report_failed
-        do:
-          - fail_workflow
-
-  - name: report_no_regions
-    action: core.echo
-    input:
-      message: "No deployment regions were requested"
-    next:
-      - when: "{{ failed() }}"
-        publish:
-          - final_status: no_regions_report_failed
-        do:
-          - fail_workflow
-
-  - name: fail_workflow
-    action: deployments.fail_workflow
-    input:
-      status: "{{ workflow.final_status }}"
-      message: "Deployment workflow failed: {{ workflow.final_status }}"
-
+          - processed: "{{ length(parameters.items) }}"
 output_map:
-  status: "{{ workflow.final_status }}"
-  deployed_regions: "{{ workflow.deployed_regions }}"
-  approved: "{{ workflow.approved }}"
+  processed: "{{ workflow.processed }}"
 ```
 
-Notes:
+`example.process_one` must exist and accept `item_id`. This example leaves failures unhandled so they remain failures. Do not add a successful error-report task and assume the parent stays failed.
 
-- `output_map` values are strings rendered through the workflow context. Pure template strings preserve JSON type, so `approved` remains a boolean and `deployed_regions` remains an array.
-- Every `do` target should be a list of task names. Do not use scalar `do: next_task` in new YAML.
-- A task with no `next` is a terminal task.
-- `deployments.fail_workflow` is a deliberate terminal action that exits nonzero. Failure transitions mark their source failure handled; routing through this action preserves an overall failed parent after publishing `final_status`. Rejection and no-regions paths intentionally end successfully after their report action.
-- Approval and rejection require successful task completion and use complementary result predicates. Failure and timeout remain separate status branches. All matching transitions fire, so decision predicates must be mutually exclusive; transition ordering is not first-match behavior.
-- `check_regions` provides explicit domain behavior for an empty region list, although empty `with_items` now completes successfully with an empty item result.
+`workflow_file` is relative to `actions/`. The wrapper owns metadata and flat `parameters`/`output`; omit `runner_type`, `entry_point`, and worker parameter/output transport fields. Graph-only files should not repeat the wrapper. If maintaining duplicated graph schemas, current loader reconciliation requires matching bodies. Prefer one source.
 
-### Tasks
+Use `parameters`/`output` for new pack schemas. Current schema aliases are accepted but duplicate spellings are rejected. Named types remain single-value schemas inside flat field maps; use the schema-author skill when needed.
 
-Current UI-compatible workflow tasks are action invocations. Common fields:
+Omitted `enabled` preserves operator state on reload. Reference policy is public/private/restricted with an allowlist only for restricted. Cross-pack tasks must satisfy the target action's reference policy independently of execution grants. Workflow upload API updates preserve omitted reference-policy fields; explicit `reference_allowed_pack_refs: []` clears that allowlist. Pack reload is not the same update path.
 
-```yaml
-- name: task_name
-  action: pack.action_ref
-  input: {}
-  next: []
-  delay: 5
-  retry:
-    count: 3
-    delay: 10
-    backoff: exponential
-    max_delay: 120
-  timeout: 600
-  with_items: "{{ parameters.items }}"
-  batch_size: 10
-  concurrency: 2
-  permission_set_refs:
-    - standard
-  worker_selector:
-    gpu: "true"
-  worker_tolerations:
-    - key: dedicated
-      value: gpu
-      effect: no_schedule
-  worker_affinity:
-    required:
-      - match_labels:
-          arch: amd64
-```
+## Tasks, transitions, and joins
 
-Prefer action tasks and transition fan-out over `type: parallel` for new UI-compatible workflows. The parser still has legacy task types (`action`, `parallel`, `workflow`) and task-level `when`, but new workflows should put branching conditions on transitions.
-
-### Transitions
-
-Use `next` transitions:
+New tasks invoke actions and use `input` as a flat parameter map. Prefer canonical `next` entries:
 
 ```yaml
 next:
-  - when: "{{ succeeded() }}"
+  - when: "{{ succeeded() and result().data.approved == true }}"
     publish:
-      - result_id: "{{ result().id }}"
-      - validation_passed: true
-    do:
-      - next_task
-      - audit_success
+      - approved: true
+    do: [deploy]
+  - when: "{{ succeeded() and result().data.approved != true }}"
+    do: [report_rejection]
   - when: "{{ failed() }}"
-    do:
-      - handle_error
+    do: [handle_failure]
   - when: "{{ timed_out() }}"
-    do:
-      - handle_timeout
-  - do:
-      - always_runs_after_completion
+    do: [handle_timeout]
 ```
 
-Rules:
+- All matching transitions fire independently. Ordering is not first-match. Use mutually exclusive predicates unless fan-out is intended.
+- Omitted `when` is unconditional. Invalid expressions fail closed.
+- `publish` is a list of variable/value mappings into `workflow`; pure templates preserve their JSON types.
+- `do` should be a list of existing task names, including a one-element list for one successor.
+- No successor means a terminal task. A failure transition can mark its source failure handled. If the parent must fail after cleanup/reporting, route to a deliberate nonzero-exit terminal action.
+- `join: N` is a numeric inbound-completion barrier; without it, a task can become ready after any predecessor. Do not copy unsupported string `join: all` or assume a merge waits for every branch. Test branch overlap and joins.
+- Cycles need a terminating condition. Wait-guarded tasks cannot be in cyclic regions.
+- Legacy transition names can be normalized by some parser paths, but new output and direct API payloads should use `next`, not task-level branching or legacy parallel containers.
 
-- `when` is optional; omit it for an unconditional transition.
-- Transitions are iterated in order after a task completes, but are independent all-match transitions, not first-match branches. Make conditions mutually exclusive.
-- The complete `when` expression is evaluated, including expressions that combine `succeeded()`, `failed()`, or `timed_out()` with result/data predicates. Evaluation errors fail closed and do not fire the transition.
-- `publish` writes variables into the `workflow` namespace for later tasks.
-- `publish` values may be strings, booleans, numbers, arrays, objects, or null. Pure template strings preserve the underlying JSON type.
-- Legacy `on_success`, `on_failure`, `on_complete`, `on_timeout`, and `decision` are normalized by the common YAML parser, but new output should use `next` only. Direct save API payloads should already contain canonical `next`; do not assume every API path runs legacy normalization.
+Common task fields include `delay`, `retry`, `timeout`, `trace_tag_template`, permission selection, and worker placement. `timeout` is a child-execution override in seconds and can be a positive integer or a pure expression resolving to one in current source. It takes precedence over the child action default; it is not the CLI watch timeout. Timeouts are terminal status `timeout`, match `timed_out()`, and may retry when attempts remain.
 
-### Template namespaces
+`cancellation_policy: allow_finish` suppresses new work and lets running children finish. `cancel_running` cancels running children too. Preserve the field across visual-builder/API round trips; neither choice rolls back external side effects.
 
-Use these canonical namespaces in new YAML:
+## Template context
 
-| Namespace | Example | Meaning |
-| --- | --- | --- |
-| `parameters` | `{{ parameters.app_name }}` | Immutable workflow input parameters |
-| `workflow` | `{{ workflow.deployed_regions }}` | Mutable workflow variables set by `vars` or `publish` |
-| `task` | `{{ task.validate.summary }}` or `{{ task.validate.data.summary }}` | Normalized completed result keyed by task name; parsed `data` fields are also flattened as aliases |
-| `config` | `{{ config.api_base_url }}` | Pack configuration values |
-| `keystore` | `{{ keystore.db.password }}` | Decrypted key-store values; objects and arrays keep their JSON type |
-| `item` | `{{ item }}` or `{{ item.name }}` | Current `with_items` element |
-| `index` | `{{ index }}` | Zero-based `with_items` index |
-| `system` | `{{ system.workflow_start }}` | System-provided workflow values |
+| Namespace | Use |
+| --- | --- |
+| `parameters` | Immutable workflow inputs |
+| `workflow` | Variables initialized by `vars` or written by transitions |
+| `task` | Named completed result views |
+| `config` | Owning pack configuration, not rule-style `pack.config` |
+| `keystore` | Authorized Key values, with secret-origin tracking |
+| `item`, `index` | Current iteration value and zero-based ordinal |
+| `system` | System-provided workflow context |
+| `inquiry` | Inquiry wait state keyed by guarded task name |
 
-Backward-compatible aliases exist: `vars` and `variables` for `workflow`, `tasks` for `task`, and bare workflow variable names as a fallback. Do not introduce aliases in new YAML unless preserving existing files.
+For a regular action, use immediate `{{ result().data.field }}` or later `{{ task.fetch.data.field }}`. Parsed data fields also have flattened aliases. Do not add `.result` under `task.fetch` or assume native prerequisite state has the same shape as worker output.
 
-Do not use `pack.config.*` in new workflows; use `config.*`.
+Whole-value `{{ ... }}` expressions preserve objects, arrays, booleans, numbers, and null. Mixed text is a string. Rendered values must satisfy the retained contract. Authoring previews and current mutable schemas do not replace the contracts captured by existing executions/retries. Avoid legacy `vars`, `tasks`, and bare-variable aliases in new templates.
 
-### Type-preserving templates
+## Array and cache iteration
 
-Attune renders JSON recursively:
+`with_items` normally resolves to an array. The implementation wraps non-arrays as one item, so validate inputs rather than relying on that coercion. Empty arrays complete successfully with an empty item result. Default concurrency and batch size are `1`.
 
-```yaml
-input:
-  regions: "{{ parameters.regions }}"       # array stays an array
-  approved: "{{ workflow.approved }}"       # boolean stays boolean
-  count: "{{ length(parameters.regions) }}" # number stays number
-  message: "Deploying {{ parameters.app_name }}" # mixed text is a string
-```
+With `batch_size: 1`, `item` is one element and `index` its ordinal. Larger batches make `item` an array chunk and `index` the chunk ordinal. Use bounded concurrency and idempotent children. Do not assume `result()` after iteration is a stable aggregate of every child result; use an explicit collection/output mechanism when needed.
 
-Avoid wrapping pure templates in extra text when the target action expects an array, object, number, or boolean.
-
-### with_items and concurrency
-
-`with_items` should normally resolve to a JSON array. The implementation wraps a non-array as one item rather than rejecting it. It creates child execution rows for all items, then publishes only the first `concurrency` items. Remaining items stay requested and are published as earlier items finish. If `concurrency` is omitted, the default is serial (`1`). An empty array creates a synthetic completed child with result `{"succeeded": true, "items": []}`, allowing normal success transitions to run.
+Use native cache iteration only for snapshot namespaces:
 
 ```yaml
-- name: deploy_each_region
-  action: deployments.deploy_region
-  with_items: "{{ parameters.regions }}"
-  concurrency: 2
-  input:
-    region: "{{ item }}"
-    ordinal: "{{ index }}"
-  next:
-    - when: "{{ succeeded() }}"
-      do:
-        - verify_deployments
-    - when: "{{ failed() }}"
-      do:
-        - rollback
-```
-
-Use a higher `concurrency` only when the called action and external systems can safely handle parallel work. Do not assume `result()` after a `with_items` task is an aggregate of all item results; if you need a stable aggregate, publish values you can compute from workflow inputs or have the called actions write to an artifact or another explicit collection mechanism.
-
-With `batch_size: 1`, `item` is one array element and `index` is its zero-based item ordinal. With `batch_size > 1`, `item` is an array chunk and `index` is the zero-based chunk ordinal. This shape is distinct from `iterate_cache`, whose elements are cache entry objects.
-
-### Native Data Cache iteration
-
-Use `iterate_cache` when the source is an Attune Data Cache. It is native
-executor behavior, not an action-authored API loop and not a speculative task
-type.
-
-```yaml
-- name: process_cached_users
-  action: examples.process_user_batch
+- name: cached_users
+  action: example.process_user_batch
   iterate_cache:
     owner_type: pack
-    owner_ref: examples
+    owner_ref: example
     namespace: users
     generation: active
     require_fresh: false
     page_size: 100
   batch_size: 25
   concurrency: 4
-  permission_set_refs:
-    - standard
-  retry:
-    count: 3
-    delay: 5
-    backoff: exponential
+  permission_set_refs: [standard]
   input:
     users: "{{ item }}"
     batch_index: "{{ index }}"
 ```
 
-Fields and defaults:
+`generation` defaults to `active`; `require_fresh` to false; page size to `100`; task batch size/concurrency to `1`. Use page/batch sizes in `1..1000`. A literal generation selector is a string in graph metadata, for example `generation: "42"`; pure templates may resolve an ID. Owner defaults to the workflow pack; action/sensor owners require their refs. Cross-owner reads need admitted named grants.
 
-| Field | Required/default | Authoring rule |
-| --- | --- | --- |
-| `owner_type` | `pack` | Use `system`, `identity`, `pack`, `action`, or `sensor`. |
-| `owner_ref` | Owner-dependent | Pack defaults to the workflow pack; required for action/sensor; omit for system/current identity. |
-| `namespace` | Required | Select one namespace in that owner scope. |
-| `generation` | `active` | Use `active`, an integer generation ID, or a template resolving to either. |
-| `require_fresh` | `false` | Set `true` only when stale last-known-good data is unacceptable. |
-| `page_size` | `100` | Choose `1..1000`; this only bounds each internal cache scan fetch. |
-| Task `batch_size` | `1` | Choose `1..1000`; this controls entries per child independently of `page_size`. |
-| Task `concurrency` | `1` | Maximum child batches in flight. Keep it outside `iterate_cache`. |
+One cache entry has `external_id`, `value`, `source_updated_at`, `source_checksum`, and `size_bytes`. At batch size one, `item` is that object; at larger sizes it is an array of entry objects. There is no `item.entries` or `item.generation_id` wrapper.
 
-At `batch_size: 1`, `item` is one entry object:
+The iterator pins one generation and persists scan/child progress. Resume retains the generation; retries reuse persisted inputs. Errors stop further discovery and settle in-flight children before the failure transition. Live namespaces cannot scan or use `iterate_cache`. It is mutually exclusive with `with_items`; keep concurrency outside `iterate_cache`. Do not log/publish cache values or external IDs unintentionally.
 
-```json
-{
-  "external_id": "opaque-id",
-  "value": {},
-  "source_updated_at": null,
-  "source_checksum": null,
-  "size_bytes": 2
-}
-```
+## Inquiries and durable waits
 
-At `batch_size` greater than `1`, `item` is an array of entry objects and the
-last batch may be smaller. `index` is the stable zero-based batch ordinal.
-Never use `item.entries` or `item.generation_id`; those wrappers do not exist.
-
-The durable scanning iteration pins one generation against retention and
-persists cursor, batch, and child progress. It is not a renewable lease. Normal
-workflow terminal handling and supervisor workflow remediation make abandoned
-iterations terminal so pins are released. Restart or resume continues the same
-generation without replaying completed batches. Child retries reuse the
-persisted child input. A terminal child or native cache error stops new batch
-discovery and takes the failed transition after in-flight children settle.
-
-The task's resolved permission sets authorize each native page read.
-`standard` is read-only and works only for signed executing/containing action
-and pack scopes. Cross-owner reads need a narrowly scoped named permission set.
-Native cache iteration checks that named refs were delegated onto the parent
-workflow execution; `standard` retains its reserved scoped behavior.
-The child needs no cache token solely to receive this explicit input, but needs
-one for any additional API request.
-
-Do not publish or log `item`. Iterator state, audits, and errors omit values and
-external IDs. The safe status endpoint exposes task, namespace/generation IDs,
-state, scan/dispatch counts and sizes, concurrency, timestamps, and a bounded
-error summary. Child inputs are deliberate disclosure to the called action.
-
-`iterate_cache` is mutually exclusive with `with_items`, but supports task
-`batch_size`. Use
-`with_items` for arrays already in workflow context; use `iterate_cache` for
-bounded, lazy, generation-pinned cache traversal.
-
-### core.ask human-in-the-loop pattern
-
-`core.ask` is a native action, but the scheduler intercepts `core.ask` when it is a workflow task: it creates an inquiry, marks the child execution running, and does not send it to a worker. When the inquiry is answered, the task completes with result shape `{"response": ...}`. If the task timeout expires, use a `timed_out()` transition.
+An action creates an inquiry through the API, delivers its provider message, and returns the inquiry ID. A successor can wait without creating its child execution first:
 
 ```yaml
-- name: approval
-  action: core.ask
+- name: deploy
+  action: example.deploy_if_approved
+  wait_for:
+    inquiry: "{{ task.request_approval.data.inquiry_id }}"
   input:
-    prompt: "Approve deployment to {{ parameters.environment }}?"
-    assigned_to: "{{ parameters.approver_identity_id }}"
-    response_schema:
-      approved:
-        type: boolean
-        required: true
-      reason:
-        type: string
-  timeout: 1800
-  next:
-    - when: "{{ succeeded() and result().response.approved == true }}"
-      publish:
-        - approved: true
-      do:
-        - continue_deploy
-    - when: "{{ succeeded() and result().response.approved != true }}"
-      do:
-        - stop_deploy
-    - when: "{{ timed_out() }}"
-      do:
-        - approval_timed_out
-    - when: "{{ failed() }}"
-      do:
-        - approval_failed
+    approved: "{{ inquiry.deploy.response.approved }}"
 ```
 
-`assigned_to` is an identity id, not a role name or email string.
+The producer `request_approval` must run first and return `inquiry_id`. The guarded action must explicitly reject non-approval; answered does not necessarily mean approved. Use the target wait lifecycle to handle timeout/cancellation/failure rather than pretending the prerequisite is an action result.
 
-### Task permission_set_refs
+`wait_for` accepts exactly one `inquiry`, `execution`, or `work_queue_item` positive numeric ID or pure expression. It cannot be combined with iteration or parallel containers, and cannot be in a cyclic graph region. It does not create the inquiry or grant access to the waited resource. Verify executor/consumer readiness for execution and queue waits on the target release.
 
-Execution-scoped API tokens are opt-in. Use `permission_set_refs` on a workflow task when the child action needs Attune API access.
+Inquiry creation needs named `inquiries:create`, not `standard`. `assigned_to` is a numeric identity ID. The API derives creator/workflow/task attribution from the token. Responses validate under the retained response contract; option handles are opaque provider-control material, never logs or action output. Test equivalent creation retries, provider-delivery idempotency, assignment/self-approval rules, late/duplicate responses, and secret-safe inquiry disclosure.
+
+## Dynamic targets, permissions, and placement
+
+Current canonical source supports a finite dynamic action ceiling:
 
 ```yaml
-- name: write_artifact
-  action: deployments.write_manifest
-  permission_set_refs:
-    - standard
-  input:
-    manifest: "{{ workflow.manifest }}"
-
-- name: dynamic_permissions
-  action: tools.agent_action
-  permission_set_refs: "{{ workflow.agent_permission_sets }}"
+- name: choose
+  action: "{{ parameters.target }}"
+  allowed_action_refs: [example.first, shared.second]
+  permission_set_refs: []
+  input: {}
 ```
 
-Supported values:
+Use 1 to 256 literal full refs, not wildcards, prefixes, or templated ceilings. Every possible target needs reference/admission checks. A literal `action` with a ceiling must belong to it. Dynamic selection cannot borrow another target's grants. See [managed component edits](https://github.com/attune-system/attune/blob/main/docs/permissions/managed-component-readmission.md); recorded capability execution remains gated at the audited revision.
 
-- Omitted: use the called action's `default_execution_permission_set_refs`.
-- `null`, empty string, or empty array: force no execution-token permissions.
-- String: one permission set ref.
-- Array of strings: multiple permission set refs; duplicates are removed.
-- `standard`: reserved ref for scoped key/artifact operations and cache reads in the signed action/pack scope.
+Omitting task `permission_set_refs` inherits pinned target defaults; an explicit empty selection disables token issuance. A string, list, or supported rendered selection must be validated after rendering. Prefer `[]` for explicit opt-out; null handling can differ by parser path. `standard` is scoped key/artifact/cache-read access, not general API authority. Existing delegated children must stay within the parent's named snapshot; recorded invocation ceilings are a separate gated contract, not implicit inheritance.
 
-Ordinary tasks and `with_items` children enforce that named task refs or inherited action-default refs are a subset of the parent execution snapshot. Undelegated named refs fail child dispatch; `standard` retains its reserved scoped behavior.
+Task placement overrides `worker_selector`, `worker_tolerations`, and `worker_affinity`. Omit to inherit action defaults; empty objects/lists intentionally clear inherited values where supported. Keep API tokens and secrets out of runtime env, arguments, trace tags, and logs.
 
-### Worker placement
+## Validation gate
 
-Task-level placement fields are rendered as templates and become per-execution overrides:
-
-```yaml
-- name: gpu_inference
-  action: ml.run_inference
-  worker_selector:
-    gpu: "true"
-  worker_tolerations:
-    - key: dedicated
-      value: gpu
-      effect: no_schedule
-  input:
-    model: "{{ parameters.model }}"
-```
-
-Omit placement fields to inherit the target action defaults. Use `{}` for `worker_selector` or `worker_affinity`, and `[]` for `worker_tolerations`, only when you intentionally want to clear an inherited default.
-
-## Optional Attune Repository Files to Inspect
-
-When working inside the Attune repository, verify against source before making strong claims. Useful files include:
-
-- `crates/common/src/workflow/parser.rs`: workflow YAML model, transition normalization, task fields, publish directives.
-- `crates/executor/src/workflow/context.rs`: namespaces, expression evaluation, type-preserving rendering.
-- `crates/executor/src/workflow/graph.rs`: `next` transition graph representation.
-- `crates/executor/src/scheduler.rs`: workflow orchestration, `with_items`, `permission_set_refs`, `core.ask`, `output_map`.
-- `crates/api/src/routes/workflows.rs`: visual-builder save format and action/workflow file generation.
-- `crates/common/src/pack_registry/loader.rs`: `workflow_file` handling and workflow action runtime behavior.
-- `packs/core/actions/ask.yaml`: current `core.ask` action parameters.
-- `docs/examples/cache-iteration-workflow-action.yaml` and
-  `docs/examples/cache-iteration-workflow.workflow.yaml`: canonical two-file
-  native cache iteration example.
-- `docs/examples/simple-workflow.yaml`, `docs/examples/complete-workflow.yaml`, and `packs/core/workflows/install_packs.yaml`: useful historical examples, but they include legacy standalone layout and legacy transition fields. Do not treat them as canonical for new output.
-
-## Review Checklist
-
-- [ ] Exactly two new files for action-linked workflows: action YAML plus graph-only workflow YAML.
-- [ ] Action YAML has `workflow_file` and omits `runner_type`/native execution fields.
-- [ ] Reference visibility and allowed-pack fields are intentional: omission preserves existing values on update, while an explicit empty allowed-pack list clears the allowlist.
-- [ ] Action ref is `<pack_ref>.<name>` and the workflow file path matches.
-- [ ] Graph file contains only graph fields: `version`, `vars`, `tasks`, `output_map`, and optional `cancellation_policy`.
-- [ ] Graph-level `cancellation_policy` is intentional and any visual-builder/API round trip preserves it.
-- [ ] Task inputs are flat parameter maps, not wrapped under `parameters`.
-- [ ] Transitions use `next` with list-valued `do` targets.
-- [ ] Full transition expressions are valid, evaluation failures fail closed, and independently matching transitions do not schedule contradictory branches.
-- [ ] Publish blocks write deliberate, stable values into `workflow.*`.
-- [ ] Pure templates are used where JSON types must be preserved.
-- [ ] `with_items` tasks define intentional empty-array success behavior, set safe `batch_size`/`concurrency`, and use scalar versus chunked `item`/`index` correctly.
-- [ ] `iterate_cache` tasks select the intended owner/namespace, generation,
-      freshness, page and batch sizes, read permission, and safe `concurrency`.
-- [ ] Cache batch values and external IDs are not published, logged, or returned
-      unintentionally.
-- [ ] `core.ask` tasks use `prompt`, optional `response_schema`, numeric `assigned_to`, and timeout handling.
-- [ ] `permission_set_refs` are minimal and intentional.
-- [ ] Named ordinary-child and `with_items` refs are delegated by the parent execution snapshot.
-- [ ] Worker placement is omitted unless required or intentionally cleared.
-- [ ] Output mapping returns stable documented values.
-- [ ] Older `on_success`/`decision` examples have not been copied into new output.
-
-## Example Invocation Prompts
-
-- "Act as Attune Workflow Author. Create a workflow action in pack `deployments` that validates inputs, asks for approval in production, deploys to each region with concurrency 2, and rolls back on failure."
-- "Review these files for current Attune workflow conventions: `actions/restart_service.yaml` and `actions/workflows/restart_service.workflow.yaml`. Return a patch."
-- "Convert this legacy workflow using `on_success` and `decision` into current `next` transitions and split it into action YAML plus graph-only workflow YAML."
-- "Add `permission_set_refs: standard` and worker placement overrides to the tasks that need pack-scoped artifacts and GPU workers."
-
-## Failure Modes to Avoid
-
-- Producing a single monolithic workflow YAML for a new action-linked workflow.
-- Adding `runner_type: native` or an `entry_point` to a workflow action YAML.
-- Emitting legacy `on_success`/`on_failure` fields instead of canonical `next` transitions.
-- Using non-canonical namespaces like `vars`, `tasks`, `pack.config`, or bare variables in new YAML.
-- Stringifying arrays, objects, booleans, or numbers by embedding pure templates inside surrounding text.
-- Referencing `result()` outside the transition that immediately follows the completed task when an explicit `task.<name>...` reference is clearer.
-- Creating transition targets that do not exist.
-- Assuming cycles are invalid; current workflow graphs support cycles, but cycles must have a deliberate terminating condition.
-- Giving every task broad API permissions when only one task needs `standard` or a named permission set.
-- Combining `iterate_cache` with `with_items`, or writing a manual
-  cache pagination loop when native iteration is required.
-- Assuming `require_fresh` defaults to true or that resume can switch to a new
-  generation after the pinned snapshot expires.
-- Adding worker placement constraints without knowing available worker labels and taints.
-- Omitting timeout and failure branches around approvals, remote API calls, deploys, and rollbacks.
-- Assuming a failure transition preserves overall workflow failure; taking a successor transition handles the source failure unless a later task fails deliberately.
-- Copying old docs or core workflow examples verbatim when they conflict with current action-linked conventions.
-
-## Verified Implementation Claims
-
-The guidance above is based on current Attune implementation details:
-
-- `workflow_file` on an action YAML is loaded relative to `actions/`, creates/updates a `workflow_definition`, and links `action.workflow_def`.
-- Workflow actions with `workflow_file` are stored without a runtime and are orchestrated by the executor instead of dispatched to a worker.
-- Visual-builder/API saves write action YAML to `actions/<name>.yaml` and graph-only workflow YAML to `actions/workflows/<name>.workflow.yaml`.
-- Parser fields include `next`, `publish`, `with_items`, `batch_size`, `concurrency`, `permission_set_refs`, and worker placement overrides.
-- Legacy transition fields are normalized into `next` by the common YAML parser, but direct save payloads should emit `next` directly.
-- Workflow context supports `parameters`, `workflow`, `task`, `config`, `keystore`, `item`, `index`, and `system`; aliases are backward-compatible only.
-- Pure `{{ ... }}` templates preserve JSON values; mixed strings stringify.
-- `with_items` defaults to concurrency `1` and publishes deferred items as earlier siblings complete.
-- `with_items` wraps non-arrays, chunks by `batch_size`, and synthesizes successful completion with an empty item result for empty arrays.
-- `iterate_cache` scans one pinned cache generation into typed child batches;
-  `generation` defaults to `active`, `require_fresh` to `false`, `page_size` to
-  `100`, and task `batch_size` and concurrency to `1`.
-- `core.ask` workflow tasks create inquiries and complete with `result().response` when answered.
+Check two-file paths, refs, finite targets, flat input/output schemas, transitions, joins, status predicates, terminal outputs, iteration shape/empty behavior, permission admission, placement, retry/timeout/cancellation, inquiry waits, and historical binding preservation. Run offline `pack check`, deterministic graph tests, and permitted service-level tests. Report unverified consumers or gates instead of calling parser acceptance a successful workflow run.

@@ -1,96 +1,97 @@
-# Attune Agent Skills
+# Attune agent skills
 
-This repository contains reusable, self-contained agent skills for developing Attune pack contents. Each skill includes its required conventions inline and can be loaded from workspaces that do not contain the Attune repository.
+Reusable skills for authoring and reviewing Attune packs. Each skill directory is independently installable and includes its own examples and references. Attune is pre-production; verify version-sensitive behavior against the target server and CLI.
 
-## Verification baseline
+## Skills
 
-Claims were last audited on 2026-08-11 against:
+| Skill | Use when |
+| --- | --- |
+| [attune-pack-architect](attune-pack-architect/SKILL.md) | Planning pack boundaries, manifests, dependencies, trust, release strategy, and specialist handoffs. |
+| [attune-schema-author](attune-schema-author/SKILL.md) | Defining flat schemas, reusable `types/*.yaml`, defaults, secret fields, or schema references. |
+| [attune-action-author](attune-action-author/SKILL.md) | Writing action metadata and entrypoints with stdin parameters and structured output. |
+| [attune-mcp-agent-action-author](attune-mcp-agent-action-author/SKILL.md) | Running agents with execution-scoped Attune MCP access. |
+| [attune-rule-author](attune-rule-author/SKILL.md) | Mapping trigger events to actions, configuring managed sensor placement, or debugging missing enforcements. |
+| [attune-workflow-author](attune-workflow-author/SKILL.md) | Writing two-file workflows, transitions, iteration, approvals, and child permissions. |
+| [attune-sensor-author](attune-sensor-author/SKILL.md) | Writing trigger contracts and managed sensors with stdin bootstrap, notifier updates, and fenced tokens. |
+| [attune-queue-author](attune-queue-author/SKILL.md) | Defining durable queues, dispatch mappings, batching, idempotency, and acknowledgements. |
+| [attune-cache-author](attune-cache-author/SKILL.md) | Choosing snapshot/live cache modes and designing namespace, publication, and retention contracts. |
+| [attune-dashboard-author](attune-dashboard-author/SKILL.md) | Composing dashboard sources, filters, visualizations, layouts, and permission-aware previews. |
+| [attune-runtime-author](attune-runtime-author/SKILL.md) | Defining custom runtime verification, interpreter setup, dependencies, and version entries. |
+| [attune-policy-author](attune-policy-author/SKILL.md) | Designing execution scheduling limits and shared-resource concurrency, not RBAC grants. |
+| [attune-permission-set-author](attune-permission-set-author/SKILL.md) | Defining scoped RBAC grants and purpose-specific runtime access, not scheduling limits. |
+| [attune-cli-guide](attune-cli-guide/SKILL.md) | Using the CLI and MCP, including offline validation and release archives. |
+| [attune-pack-test-reviewer](attune-pack-test-reviewer/SKILL.md) | Checking component contracts and release readiness before deployment. |
+| [translate-to-attune-pack](translate-to-attune-pack/SKILL.md) | Converting external automation while documenting semantic differences. |
 
-- Attune working tree based on commit `9ab78cf3b9184eaa0b1e2a3c3f48d1d2da5af054`, with the audited remediation changes still uncommitted. Full `cargo test --workspace --all-targets` and `cargo check --all-targets --workspace` pass; ignored database/integration tests are not part of the default test run. The core pack passes `pack check` and all 19 declared pack tests.
-- Python SDK working tree based on commit `93814eacffad22207768b2ab9368865a1b1008a1`, plus uncommitted sensor remediation and a regenerated API client. All 91 pytest tests pass, including generated OpenAPI contract coverage in `test_api_client`, and both the sdist and wheel build successfully.
-- JavaScript SDK working tree based on commit `15773a5a3767213f5d1ac005219174d5e06f4681`, plus uncommitted sensor remediation and a regenerated API client. All 61 tests pass, including deferred create/enable/update authoritative refetch coverage, as do lint, build, package smoke, generated-client freshness, and `npm audit` with 0 vulnerabilities.
-- Java SDK working tree based on commit `02755db2d62683bfff0c5ca19427d4a4f5a596ba`, with uncommitted remediation that uses long rule IDs and targets supplied rules by default; all 31 JUnit tests pass, but notifier WebSocket lifecycle support remains unavailable and the incompatible legacy RabbitMQ consumer is disabled.
-- This `agent-skills` repository had no commit at audit start; the skill files were untracked at that point.
+Start with the architect for a new pack or a pack-wide redesign. For an isolated component task, start with its specialist directly. Run the reviewer before publication.
 
-See [CLAIM-VERIFICATION.md](CLAIM-VERIFICATION.md) for implementation sources, focused tests, commands, and the scope of each verification. Implementation-backed limitations in the skills describe the recorded revisions; re-check source and installed `--help` output when using another revision.
+### Organization and loading
 
-## Shared authoring rules
+The architect owns pack-wide decisions and routes work; it is not a combined metadata manual. Each component skill has a short authoring/review workflow and its own detailed references, loaded only for that task's relevant branches. Release packaging remains with the architect because it spans components.
 
-- Canonical manifest fields are `label`, `conf_schema`, `meta`, and `tags`. Pack check and registration normalize legacy `name`, `config_schema`, `metadata`, and `keywords` aliases; canonical values win and conflicting pairs are reported, so new manifests should not duplicate aliases.
-- Implemented action parameter delivery is `stdin` or `file` with `json`, `yaml`, or `dotenv`. Prefer stdin JSON for new structured actions; dotenv is a limited scalar transport.
-- The reserved `standard` execution permission covers scoped key and artifact operations and scoped cache reads. It is not broad API authority.
-- Ordinary workflow tasks, `with_items` children, inherited action defaults, and native cache iteration reject named permission refs that were not delegated by the parent execution. The reserved `standard` ref retains its scoped behavior without requiring a named parent ref.
-- JSON, YAML, and JSONL stdout parsing is best-effort. Parse failure does not turn an otherwise successful process into a failed execution, and malformed JSONL lines can be omitted.
-- `pack check` is the primary read-only structural gate, not a registrar-equivalent simulation. Run `pack test` as well and use a permitted server smoke test when runtime or update behavior must be proven; failed pack tests return nonzero in every output format.
-- `attune-mcp` stdio is the default for local and execution-scoped clients. HTTP defaults to `127.0.0.1:8090`, requires a separate inbound token through `ATTUNE_MCP_HTTP_BEARER_TOKEN` or `--http-bearer-token`, and refuses non-loopback listeners unless `--public-listen` is explicit.
-- Key API routes admit access and execution tokens, then apply normal RBAC and owner constraints. Refresh, sensor, and worker tokens are rejected for key list/get/decrypt/create/update/delete operations.
-- Managed sensors receive a startup snapshot in `ATTUNE_SENSOR_TRIGGERS` and the complete declared trigger list in `ATTUNE_SENSOR_TRIGGER_TYPES`; compatible sensors consume in-process lifecycle updates from `ATTUNE_NOTIFIER_WS_URL`. Ordinary rule changes do not restart an already-running sensor merely to refresh the snapshot.
-- The recorded Python and JavaScript working trees support notifier WebSocket lifecycle updates and numeric rule-targeted emission by default. The Java working tree supports the same targeting default but only bootstraps the startup snapshot: it has no notifier WebSocket lifecycle updates, and its incompatible legacy RabbitMQ consumer is disabled. All require an explicit false targeting option for an intentional broadcast.
+`attune-schema-author` owns shared schema semantics. `attune-permission-set-author` owns grant/delegation semantics. Component skills explain their specific schema and permission attachments without repeating the full shared rules. Execution policies and permission sets have separate skills because scheduling admission and API authorization are different tasks.
 
-## Skill Set
+Each skill's file links stay inside its directory so it can be copied independently. Related skills are named rather than linked through sibling filesystem paths. Install the related specialists when a task needs those branches; an isolated skill still carries its own core workflow and component reference.
 
-| Skill | Directory | Use when |
-| --- | --- | --- |
-| `attune-pack-architect` | [attune-pack-architect](attune-pack-architect/) | Planning a complete pack, directory layout, refs, runtime/config strategy, and delegation to specialist skills. |
-| `attune-action-author` | [attune-action-author](attune-action-author/) | Writing conventional action YAML and entrypoint scripts with correct schemas, stdin parameters, runtimes, and outputs. |
-| `attune-mcp-agent-action-author` | [attune-mcp-agent-action-author](attune-mcp-agent-action-author/) | Writing AI agent actions that use execution-scoped Attune MCP access through `attune-mcp`. |
-| `attune-rule-author` | [attune-rule-author](attune-rule-author/) | Connecting trigger events to action executions with correct rules, conditions, and `action_params` mappings. |
-| `attune-workflow-author` | [attune-workflow-author](attune-workflow-author/) | Writing workflow actions and graph-only workflow YAML using current Attune workflow conventions. |
-| `attune-sensor-author` | [attune-sensor-author](attune-sensor-author/) | Writing triggers, sensor YAML, and sensor implementations that emit events through the supported sensor interface. |
-| `attune-cli-guide` | [attune-cli-guide](attune-cli-guide/) | Using the `attune` CLI and `attune-mcp` for pack upload/register, workflow upload, execution, artifacts, keys, auth, and MCP launch. |
-| `attune-pack-test-reviewer` | [attune-pack-test-reviewer](attune-pack-test-reviewer/) | Reviewing and testing pack contents before upload, registration, or publishing. |
-| `translate-to-attune-pack` | [translate-to-attune-pack](translate-to-attune-pack/) | Translating external orchestration resources into complete Attune packs. |
+## Documentation and verification baseline
 
-## Suggested routing
+Reviewed on 2026-10-29 against:
 
-Start with `attune-pack-architect` for a new pack or large change. Use the more focused skills when the scope is already clear. Run `attune-pack-test-reviewer` before publishing or when several component types changed together.
+- The [published documentation](https://docs.attunedev.org/), particularly the [YAML reference](https://docs.attunedev.org/reference/yaml/).
+- Attune source at `1949b92a635055070b2adc0d60ed10be6ab25be5`, platform `0.10.1`. The source checkout was clean apart from an unrelated untracked release note. Its tracked remote was one commit ahead with an unrelated crypto fix.
+- Current local Python, JavaScript, and Java SDK source for managed sensor bootstrap and notifier support. Package publication and server/SDK compatibility must be checked separately.
 
-## Agent portability
+This is a source and documentation audit, not a new platform test certification. The installed CLI was `0.8.0`, older than the audited source, so its availability was not treated as validation of newer contracts. Previous August test counts and references to uncommitted SDK remediations have been removed. They did not describe the current revision. The former link to a nonexistent `CLAIM-VERIFICATION.md` has also been removed.
 
-The standard `SKILL.md` frontmatter is sufficient for Claude, Codex, OpenCode, and GitHub Copilot; no extra metadata is required for discovery by those hosts. The optional `agents/openai.yaml` files provide OpenAI interface labels and starter prompts. Host-specific frontmatter fields are intentionally avoided, and `allowed-tools` is omitted so each host retains least-privilege control over tool access.
+The published docs lag some source contracts. In particular, the source supports reusable named types, stdin sensor bootstrap, immutable release tooling, and additional deployment metadata. Skills identify those differences and link to implementation sources where a public guide is missing. Source availability does not mean a gated feature is enabled: recorded runtime authority and some named-schema consumer paths still have deferred validation. Do not enable gates or claim production support from a YAML example alone.
 
-Install the root skill directories, not this containing directory as a single skill. Common user-level discovery paths are:
+### Maintenance
 
-- Claude Code: `~/.claude/skills`
-- Codex, OpenCode, and GitHub Copilot shared discovery: `~/.agents/skills`
-- GitHub Copilot dedicated discovery: `~/.copilot/skills`
+When updating these skills:
 
-The equivalent repository-local paths are `.claude/skills`, `.agents/skills`, and `.github/skills`. From this directory, symlink every skill into any user-level or repository-local target with:
+1. Record the Attune revision and inspect the relevant loader, DTO, validator, and runtime consumer. Use installed `--help` for CLI syntax.
+2. Compare the corresponding docs.attunedev.org pages. Keep links to canonical guides; distinguish published guidance from newer source behavior.
+3. Update examples, checklists, and conflicting statements together. Keep branch-specific detail in the skill's `references/` directory.
+4. Install development dependencies with `python3 -m pip install -r requirements-dev.txt`, then run `python3 -m unittest discover -s scripts -p 'test_*.py'` and `python3 scripts/check_skills.py`. The checker validates the skill index, metadata/examples, and that local file links stay inside each independently installable skill. Use `--check-urls` to verify documentation pages and fragments over the network. CI runs the offline checks; network availability is not a pull-request gate.
+5. Run `attune pack check` and declared tests for any generated pack fixtures. Report unavailable runtime or integration checks rather than copying historical pass counts.
+
+## Shared conventions
+
+- Use canonical manifest fields `label`, `conf_schema`, `meta`, and `tags`. Legacy aliases are fallback inputs, not fields to duplicate.
+- Component input/output documents remain flat field maps. Reusable named type bodies describe one JSON Schema value, not another flat document.
+- Prefer stdin JSON for actions. File delivery and YAML/dotenv remain implemented alternatives; dotenv is unsuitable for arbitrary structured or untrusted text.
+- Execution API access is opt-in. `standard` covers scoped key/artifact operations and cache reads, not event creation, queue writes, signing, or broad API access.
+- Configuration defaults, persisted operator overrides, executable releases, runtime permission selection, and human secret disclosure have different lifetimes. Preserve their boundaries.
+- Explicit `enabled` values control declared state. Omission preserves operator enabled overrides on reload for supported components; it is not equivalent to writing `true`.
+- `pack check` is offline structural validation. It does not prove deployment admission, worker availability, secret disclosure, or runtime behavior.
+
+## Installation
+
+Install each root skill directory, including its `references/` and optional `agents/` contents. Do not install this repository as one containing skill. Discovery locations depend on the agent host; common locations include `~/.claude/skills`, `~/.agents/skills`, and repository-local `.github/skills`.
+
+From this repository root, link the skills into a chosen host's discovery directory:
 
 ```sh
-SKILLS_SOURCE=/home/david/Codebase/attune-system/agent-skills
-install_attune_skills() {
-  target=$1
-  mkdir -p "$target"
-  for skill in "$SKILLS_SOURCE"/*/SKILL.md; do
-    skill_dir=${skill%/SKILL.md}
-    ln -sfn "$skill_dir" "$target/${skill_dir##*/}"
-  done
-}
-
-install_attune_skills "$HOME/.claude/skills"
-install_attune_skills "$HOME/.agents/skills"
-install_attune_skills "$HOME/.copilot/skills"
-
-# Run from the consuming repository root when project-local discovery is preferred.
-install_attune_skills "$PWD/.claude/skills"
-install_attune_skills "$PWD/.agents/skills"
-install_attune_skills "$PWD/.github/skills"
+SKILLS_SOURCE="$PWD"
+target="$HOME/.agents/skills"
+mkdir -p "$target"
+for skill in "$SKILLS_SOURCE"/*/SKILL.md; do
+  skill_dir=${skill%/SKILL.md}
+  destination="$target/${skill_dir##*/}"
+  if [ ! -e "$destination" ] && [ ! -L "$destination" ]; then
+    ln -s "$skill_dir" "$destination"
+  fi
+done
 ```
 
-For claude.ai, upload each skill directory using its skill upload interface. OpenAI plugin packaging can wrap these skills later, but no plugin manifest is included now: the source layout is currently a set of root skill directories, and no published package version or repository URL has been established.
+Existing installations are left untouched. The optional `agents/openai.yaml` files provide labels and starter prompts; host permissions still control tool access.
 
-## OpenCode
-
-Register this repository globally in `~/.config/opencode/opencode.jsonc`:
+OpenCode can also discover this repository through `skills.paths` in its configuration:
 
 ```jsonc
 {
-  "$schema": "https://opencode.ai/config.json",
   "skills": {
-    "paths": ["/home/david/Codebase/attune-system/agent-skills"]
+    "paths": ["/absolute/path/to/agent-skills"]
   }
 }
 ```
-
-OpenCode scans the path recursively for `SKILL.md`. Restart OpenCode after changing the configuration or any skill files.

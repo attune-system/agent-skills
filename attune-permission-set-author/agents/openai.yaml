@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Permission Set Author
+  short_description: Define scoped grants and runtime permission selection
+  default_prompt: Use $attune-permission-set-author to create or review these Attune grants and their consumers.

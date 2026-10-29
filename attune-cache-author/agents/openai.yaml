@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Cache Author
+  short_description: Define snapshot and live cache publication contracts
+  default_prompt: Use $attune-cache-author to create or review this Attune cache namespace and producer contract.

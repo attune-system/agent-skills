@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Schema Author
+  short_description: Define flat schemas and reusable Attune value types
+  default_prompt: Use $attune-schema-author to create or review these Attune schemas and named types.

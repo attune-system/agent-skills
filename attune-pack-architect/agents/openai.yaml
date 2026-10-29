@@ -1,4 +1,4 @@
 interface:
   display_name: Attune Pack Architect
-  short_description: Design complete, maintainable Attune packs
-  default_prompt: Use $attune-pack-architect to design or review this Attune pack.
+  short_description: Plan pack boundaries and route specialist authoring
+  default_prompt: Use $attune-pack-architect to plan this Attune pack and identify the specialist skills needed for each component.

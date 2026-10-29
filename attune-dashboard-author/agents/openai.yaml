@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Dashboard Author
+  short_description: Compose operational dashboards from typed sources
+  default_prompt: Use $attune-dashboard-author to create or review this Attune dashboard and its source mappings.

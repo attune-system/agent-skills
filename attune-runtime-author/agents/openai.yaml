@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Runtime Author
+  short_description: Define runtimes and isolated dependency environments
+  default_prompt: Use $attune-runtime-author to create or review this Attune runtime and its environment setup.

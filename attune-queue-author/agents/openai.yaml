@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Queue Author
+  short_description: Design durable queues and dispatch acknowledgements
+  default_prompt: Use $attune-queue-author to create or review this Attune queue and its dispatch contract.

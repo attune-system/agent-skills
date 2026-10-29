@@ -1,0 +1,4 @@
+interface:
+  display_name: Attune Policy Author
+  short_description: Define execution limits and scheduling policies
+  default_prompt: Use $attune-policy-author to create or review this Attune execution policy and its enforcement behavior.

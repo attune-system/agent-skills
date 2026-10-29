@@ -14,6 +14,19 @@ Translate external orchestration and integration resources into behaviorally equ
 
 Optimize for current Attune behavior rather than mechanical source-syntax conversion. Never claim full equivalence when retry, timeout, cancellation, concurrency, event delivery, credential, or state semantics differ.
 
+## Current documentation
+
+- [Pack development](https://docs.attunedev.org/pack-development/overview/)
+- [YAML reference](https://docs.attunedev.org/reference/yaml/)
+- [Actions](https://docs.attunedev.org/pack-development/actions/)
+- [Sensors](https://docs.attunedev.org/pack-development/sensors/)
+- [Rules](https://docs.attunedev.org/pack-development/rules/)
+- [Workflows](https://docs.attunedev.org/pack-development/workflows/)
+- [Cache iteration](https://docs.attunedev.org/pack-development/cache-iteration/)
+- [Testing and release](https://docs.attunedev.org/pack-development/testing-and-release/)
+
+Check the target revision, not just the published examples. Current source has named types, stdin sensor bootstrap, action-owned inquiries, immutable release tooling, and gated recorded runtime authority. Use the specialist skills for those contracts; source presence is not production readiness.
+
 ## When To Use
 
 Use this skill for source material such as:
@@ -37,10 +50,14 @@ When working in the Attune repository, retrieve current behavior before making s
 2. Working files under `packs/core/`.
 3. `AGENTS.md` guardrails.
 4. Globally available specialist skills when relevant:
-   - `attune-pack-architect`
-   - `attune-workflow-author`
-   - `attune-pack-test-reviewer`
-5. Other documentation, which may contain historical formats.
+    - `attune-pack-architect`
+    - `attune-workflow-author`
+    - `attune-queue-author`, `attune-cache-author`, or `attune-dashboard-author` for those resources
+    - `attune-runtime-author` for custom interpreters/setup
+    - `attune-policy-author` for scheduling limits, `attune-permission-set-author` for API authority
+    - `attune-schema-author` for shared schema semantics
+    - `attune-pack-test-reviewer`
+5. Current docs.attunedev.org guides, compared with the deployed version. Historical examples and design plans are not proof of supported runtime behavior.
 
 Inspect only the relevant sections. Do not copy stale examples when they conflict with implementation or the specialist references.
 
@@ -117,6 +134,7 @@ Use only directories the pack needs. A typical result may include:
 |-- requirements.txt
 |-- package.json
 |-- lib/
+|-- types/
 |-- permission_sets/
 |-- runtimes/
 |-- triggers/
@@ -137,6 +155,9 @@ Apply these target invariants:
 - Use canonical manifest fields `label`, `conf_schema`, `meta`, and `tags`. Legacy aliases are normalized for imported manifests, with canonical values taking precedence and conflicts reported; do not duplicate aliases in new output.
 - Component refs use `<pack_ref>.<component_name>`.
 - Schema fields use Attune's flat per-field format for `conf_schema`, action `parameters`, action `output`, trigger `parameters` and `output`, and queue `item_schema`.
+- Reusable `types/*.yaml` contain single-value schemas. Current schema aliases are accepted individually, but duplicate authoring/metadata names are rejected. Check defaults, secret trees, references, dependencies, and visibility with the schema-author skill.
+- Omitted `enabled` preserves supported operator overrides on reload. Configuration defaults and persistent overrides have separate lifetimes; omission is not reset. Choose deployment `absent_metadata_policy` deliberately.
+- Cross-pack action/trigger/queue/type refs must satisfy reference policy. A source-platform role or declared pack dependency is not an Attune grant.
 - Execution config is the flat parameter map, never `{ "parameters": {...} }`.
 - Implemented action parameter delivery is `stdin` or `file` with `json`, `yaml`, or `dotenv`. Prefer stdin JSON for new structured actions. Use another mode only when justified and tested; dotenv is a limited scalar transport and environment-variable delivery is unsupported.
 - Use core runtimes where possible and compare runtime names through Attune's normal aliases.
@@ -164,6 +185,7 @@ Separate event contracts from event producers:
 
 - Triggers define instance configuration and emitted payload schemas.
 - Sensors declare the triggers they emit and must produce compatible payloads.
+- Current managed sensors read one bounded stdin bootstrap containing `config` and `triggers`, then consume notifier WebSocket lifecycle updates. Match SDK and manager revisions; do not copy the old environment snapshot protocol.
 - Rules map `event.payload.*` fields into valid action parameters.
 - Rule-specific sensor emission uses `trigger_instance_id: rule_<numeric-id>`; omit it only for an intentional broadcast. Do not use an SDK targeted helper until its emitted request is contract-tested.
 - Polling sensors need bounded intervals, pagination, checkpoints or deduplication where required, backoff, graceful shutdown, and redacted logs.
@@ -189,7 +211,9 @@ Use current workflow conventions:
 - Use `parameters`, `workflow`, `task`, `config`, `keystore`, `item`, `index`, and `system` namespaces.
 - Pure `{{ ... }}` expressions preserve types; do not stringify arrays, objects, numbers, or booleans accidentally.
 - Use `with_items` for arrays already in workflow context.
-- Use `iterate_cache` for bounded, generation-pinned Data Cache traversal.
+- Use `iterate_cache` for bounded, generation-pinned snapshot cache traversal. Live namespaces support revision-guarded ID operations, not scans or workflow iteration.
+- Replace obsolete `core.ask` with an action that creates/delivers an inquiry and a successor using `wait_for.inquiry`. Do not confuse answered with approved. Test response assignment, idempotency, failure, timeout, and cancellation.
+- Dynamic action selectors need a finite literal `allowed_action_refs` ceiling and target-specific admission, not arbitrary source expressions.
 - Make retries, timeouts, failure paths, approval timeouts, concurrency, and compensation explicit.
 - Use `permission_set_refs` only on tasks that need execution API authority.
 - Full transition expressions may combine `succeeded()`, `failed()`, or `timed_out()` with result predicates. Invalid expressions fail closed, and all matching transitions fire independently.
@@ -209,6 +233,8 @@ Compare source and target behavior for joins, parallel branches, cancellation, r
 - Create narrowly scoped named permission sets only when broader API access is required, and document why.
 - Do not migrate broad source-platform roles mechanically into broad Attune execution permissions.
 - Ordinary workflow tasks, `with_items` children, inherited action defaults, and native cache iteration reject named refs outside the parent execution snapshot. Ensure the parent is explicitly delegated every named child ref.
+- That subset rule describes the existing delegated path. Newer recorded invocation ceilings/local/external scope have separate production gates; do not enable them or claim automatic pack-runtime authority to make a conversion pass.
+- Keep rule/sensor input permission sets separate from execution API refs, cache refs, and signing refs. Preserve Key selectors and recorded origins rather than migrating plaintext source credentials.
 - Do not log authorization headers, cookies, execution tokens, decrypted keys, private payloads, or cache values.
 
 ### 9. Add Deterministic Tests
@@ -234,7 +260,7 @@ Use Attune's validator as the primary read-only structural gate, not a generic Y
 attune --output json pack check <pack-path>
 ```
 
-`pack check` validates substantial pack structure, flat schemas, refs, duplicates, workflows, referenced files, local cross-component references, and canonical/legacy manifest normalization. It does not validate pack-test runner semantics, prove runtime availability, or cover every enum/update behavior. Read its diagnostics, fix errors and alias conflicts, and rerun. Generic YAML parsing is only a fallback when the Attune CLI cannot be built or run.
+`pack check` validates pack structure, schema definitions, refs, duplicates, workflows, referenced files, local references, manifest normalization, and current test-policy configuration. It does not execute tests, prove runtime availability or server admission, or cover every update behavior. Read its diagnostics, fix errors and alias conflicts, and rerun. Generic YAML parsing is only a fallback when the Attune CLI cannot be built or run. Use `testing.min_pass_rate: 1.0` and `on_failure: block` for publication rather than relying on relaxed candidate acceptance.
 
 Then execute declared pack tests:
 
@@ -248,7 +274,7 @@ If the CLI binary is not installed but this Attune repository is available, pref
 
 Only when an Attune environment is available and the user permits server changes, perform an upload or registration smoke test. Use `pack upload` for a local path when the API cannot see the host filesystem. Never describe a forced or skipped-test upload as proof that the pack is publish-ready.
 
-Treat loader warnings as installation failures. A bad `workflow_file` can leave an unlinked runtime-less action, and removed standalone workflow definitions may require explicit cleanup because they are outside the recorded stale-component cleanup set. `runtime_deps` is persisted metadata but is not consumed by the recorded install preflight, so verify runtime availability separately.
+Treat loader warnings as release blockers. Verify removed/retained metadata and surviving dependencies under the selected omission policy instead of assuming immediate physical deletion. `runtime_deps` is inventory metadata, not proof of runtime availability. For generated native/Java artifacts, build and verify a canonical release with explicit launch/mode/variant metadata; a Git checkout or source upload may omit ignored binaries.
 
 ## Deliverables
 

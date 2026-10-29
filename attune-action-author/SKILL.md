@@ -1,207 +1,149 @@
 ---
 name: attune-action-author
-description: Creates, reviews, and tests Attune pack actions with flat schemas, stdin parameter delivery, secure outputs, runtimes, SDKs, and least-privilege execution access. Use when authoring Attune action YAML and entrypoint scripts.
+description: Creates, reviews, and tests Attune action metadata and entrypoints with flat schemas, stdin parameters, structured outputs, timeouts, runtimes, and scoped API access. Use when authoring or reviewing conventional pack actions.
 license: Apache-2.0
-compatibility: Attune pack development; an Attune repository or CLI is optional but recommended for verification
+compatibility: Attune pack development; verify version-sensitive fields against the target CLI and server
 metadata:
   target: attune-action
 ---
 
-# Attune Action Author
+# Attune action author
 
-## Mission
+Produce small actions with explicit input/output contracts, safe parameter transport, predictable exit behavior, and local tests. For workflows, sensors, or MCP agent harnesses, use the corresponding specialist skill.
 
-Attune Action Author is an AI agent persona for designing, writing, reviewing, and testing Attune pack actions. It must be useful even when copied outside the Attune repository: include the required conventions inline, give concrete snippets, and only cite repository files as optional verification sources.
+For custom interpreter/setup definitions use `attune-runtime-author`; for reusable grant/delegation design use `attune-permission-set-author`; for queue metadata and dispatch contracts use `attune-queue-author`. Keep this skill focused on the action side of those contracts.
 
-Prefer small, predictable actions with explicit flat schemas, secure stdin or file parameter delivery, clear exit behavior, stdout that matches the declared output format, and scripts that can be tested locally before pack registration.
+## Documentation
 
-## When to Use
+- [Writing actions](https://docs.attunedev.org/pack-development/actions/)
+- [YAML reference](https://docs.attunedev.org/reference/yaml/)
+- [Runtime authoring](https://docs.attunedev.org/pack-development/runtime-authoring/)
+- [Runtime environments](https://docs.attunedev.org/pack-development/runtime-environments/)
+- [Keys and secrets](https://docs.attunedev.org/administration/keys-and-secrets/)
+- [Artifacts](https://docs.attunedev.org/administration/artifacts/)
+- [Permissions](https://docs.attunedev.org/administration/permissions-and-rbac/)
+- [Pack testing](https://docs.attunedev.org/pack-development/testing-and-release/)
 
-Use this persona when a developer needs to:
+When source is available, inspect `crates/common/src/pack_registry/loader.rs`, `schema_type.rs`, `value_schema/`, `crates/worker/src/runtime/`, and `crates/worker/src/executor.rs`. Docs can lag the source. In particular, current schema aliases and immutable contracts are newer than some public examples.
 
-- Add a new pack action.
-- Convert a script into `actions/<name>.yaml` plus `actions/<entry_point>`.
-- Review action YAML or scripts for schema, security, output, runtime, portability, and workflow compatibility.
-- Migrate parameter handling away from environment variables.
-- Choose between shell, Python, Node.js, or native runtimes.
-- Design structured action output for workflow consumption.
-- Decide whether an action needs Attune API, MCP, keys, artifacts, or execution-scoped permissions.
+## Authoring workflow
 
-Do not use it for sensors, triggers, rules, workflows, API service code, or UI code except where those topics affect action behavior.
+1. Establish the pack/action ref, external API contract, input/output fields, runtime, dependencies, timeout, and intended side effects.
+2. Define the metadata before implementation. Decide which fields may contain secrets and whether API access is actually needed.
+3. Implement parsing, boundary validation, serialization, failure handling, and cleanup. Make retried side effects idempotent where possible.
+4. Test success, empty input, missing/invalid fields, API failure, timeout, output shape, and secret absence.
+5. Run offline `pack check`, then declared pack tests. Run a server smoke test only when permitted; inspect the actual execution outcome.
 
-## Optional Attune-Repo Sources to Inspect
-
-When working inside the Attune repository, verify behavior against implementation and current examples before changing advice:
-
-- `crates/common/src/models.rs` for `ParameterDelivery`, `ParameterFormat`, and `OutputFormat`.
-- `migrations/20250101000004_trigger_sensor_event_rule.sql` for action table defaults and constraints.
-- `crates/common/src/pack_registry/loader.rs` for action YAML fields read by pack registration.
-- `crates/worker/src/runtime/parameter_passing.rs` for stdin/file formatting.
-- `crates/worker/src/runtime/process_executor.rs` for stdout parsing and result construction.
-- `crates/worker/src/executor.rs` for standard `ATTUNE_*` variables and execution token behavior.
-- Current examples under `packs/core/actions/`, especially `echo.*`, `sleep.*`, `noop.*`, `http_request.*`, `ask.yaml`, and `run_agent_command.*`.
-- Optional docs if present: `docs/actions/*`, `docs/QUICKREF-action-parameters.md`, `docs/QUICKREF-action-output-format.md`, `docs/QUICKREF-dotenv-shell-actions.md`, and `docs/packs/pack-structure.md`.
-
-If docs and implementation disagree, prefer the current implementation. If implementation and examples disagree, call out the discrepancy and choose the implementation for new work.
-
-## Core Conventions
-
-### Pack layout
-
-A pack action normally has:
-
-```text
-packs/<pack_ref>/
-  pack.yaml
-  actions/
-    <action_name>.yaml
-    <entry_point>
-```
-
-The worker resolves regular pack action scripts as:
-
-```text
-{packs_base_dir}/{pack_ref}/actions/{entry_point}
-```
-
-The worker runs actions with the pack directory as the working directory when the pack exists. Pack directories may be read-only in deployed workers, so do not write generated dependencies or persistent state back into the pack tree. Use runtime environment directories, artifact APIs/paths, or other configured writable locations.
-
-### Action refs and metadata
-
-- Action refs are lowercase and must be exactly `<pack_ref>.<action_name>`.
-- Use refs in YAML and APIs; numeric IDs are database details.
-- `ref` is required by the pack loader. `label` is recommended; the loader can derive one if omitted. `description` is recommended.
-- `runner_type` defaults to `shell` if omitted, but new actions should set it explicitly.
-- `entry_point` is used for regular actions. Workflow actions use `workflow_file` instead.
-- `enabled` is persisted and enforced by the executor. A disabled action is rejected before dispatch.
-
-### Runtime names
-
-Common `runner_type` values and aliases:
-
-- Shell: `shell`, `sh`, `bash` -> `core.shell`
-- Python: `python`, `python3` -> `core.python`
-- Node.js: `node`, `nodejs`, `node.js` -> `core.nodejs`
-- Native binary: `native`, `builtin`, `standalone` -> `core.native`
-
-Use `runtime_version` for interpreter version constraints when required. Use `required_worker_runtimes` only when the selected runtime is not enough, for example a shell action that also requires Node.js on the worker.
-
-### Parameter delivery
-
-The current implementation supports only:
-
-- `parameter_delivery: stdin` - default and preferred for most actions.
-- `parameter_delivery: file` - for large payloads or random-access input. The worker sets `ATTUNE_PARAMETER_FILE`.
-
-Environment-variable parameter delivery is not supported by the current `ParameterDelivery` enum or action table constraint. Environment variables are for execution context and runtime configuration, not user parameters or secrets.
-
-Parameter formats:
-
-- `json` - default; preserves strings, numbers, booleans, arrays, objects, and nulls.
-- `yaml` - preserves types; useful for human-readable structured input.
-- `dotenv` - limited scalar transport using `key='value'` lines. Nested objects are recursively flattened with dotted names such as `headers.Authorization`, arrays become JSON strings, null becomes an empty string, and an empty object emits no key. Single quotes are shell-escaped, but multiline values and arbitrary shell parsing remain fragile; do not use dotenv for general structured or attacker-controlled data.
-
-The worker writes the formatted parameter document to stdin, appends a newline, and closes stdin. Secrets fetched for the action are merged into the same parameter document before delivery.
-
-### Schemas
-
-Use Attune's flat schema style for action parameters and outputs:
+## Normal action metadata
 
 ```yaml
+ref: example.fetch
+label: Fetch
+description: Fetch one resource and return its HTTP status
+runner_type: python
+entry_point: fetch.py
+parameter_delivery: stdin
+parameter_format: json
+output_format: json
+timeout_seconds: 120
+reference_visibility: private
+log_retention_policy: versions
+log_retention_limit: 4
 parameters:
   url:
     type: string
-    description: "HTTP or HTTPS URL"
     required: true
-  timeout:
+  request_timeout:
     type: integer
-    description: "Request timeout in seconds"
     default: 30
     minimum: 1
-    maximum: 300
+    maximum: 60
   api_token:
     type: string
-    description: "Bearer token, if provided directly"
     secret: true
-```
-
-Do not use nested JSON Schema wrappers for new action files:
-
-```yaml
-# Avoid for new actions
-parameters:
-  type: object
-  properties:
-    url:
-      type: string
-  required: [url]
-```
-
-The API validation layer tolerates JSON Schema-shaped input in some paths, but current pack examples and API DTOs use flat schemas with inline `required` and `secret`.
-
-For pack YAML loaded from disk, the current loader reads structured output schema from the field named `output` and stores it as `out_schema`. Several current core YAML examples use `output_schema`; treat that as an existing inconsistency, not the safest pattern for new pack actions. For new action YAML, prefer:
-
-```yaml
 output:
   status_code:
     type: integer
-    description: "HTTP status code"
   success:
     type: boolean
-    description: "True for a successful operation"
+tags: [http]
 ```
 
-### Output behavior
+Place this at `actions/fetch.yaml` and the implementation at `actions/fetch.py`. `entry_point` is relative to `actions/`, not the pack root. The working directory is normally the materialized pack directory. Treat it as read-only; put generated dependencies in runtime environments and durable outputs in registered artifacts.
 
-Set `output_format` explicitly. Supported values are:
+New actions should set `runner_type` explicitly. Common normalized names are `shell`/`sh`/`bash`, `python`/`python3`, `node`/`nodejs`/`node.js`, and `native`/`builtin`/`standalone`. Runtime matching is case-insensitive. `bash` is an alias, not proof that a Bash interpreter is installed.
 
-- `text` - no parsing; stdout may be included in execution result metadata/logs.
-- `json` - stdout is parsed as JSON when exit code is 0 and stdout is non-empty.
-- `yaml` - stdout is parsed as YAML when exit code is 0 and stdout is non-empty.
-- `jsonl` - each JSON line is parsed and collected into an array.
+`runtime_version` constrains the main runtime. `required_worker_runtimes` declares additional runtimes needed on the same worker. Use `worker_selector`, `worker_tolerations`, and `worker_affinity` only for known placement requirements.
 
-For structured formats, stdout should contain only the semantic result. Send diagnostics, warnings, and errors to stderr. Parsing is currently best-effort: invalid JSON/YAML does not fail a process that exited zero, JSON falls back from full stdout to its last line, and JSONL silently omits malformed lines. Validate serialization in the action and tests; the declared output schema is not a parse-failure guarantee.
+For release-packaged native or Java artifacts, current source supports typed `launch` metadata. Use exactly one of `entry_point`, `launch`, or `workflow_file`; verify the release builder and worker support together. A regular native `entry_point` must be an executable file of the correct architecture. Symbolic platform handlers are not portable pack entrypoints.
 
-Successful executions store metadata such as `exit_code`, `duration_ms`, and `succeeded`. Parsed structured stdout is placed under execution `result.data`. The workflow result view retains `data` and flattens its fields as aliases, so an immediate transition can use `{{ result().data.field }}` or `{{ result().field }}`, and a later task can use `{{ task.task_name.data.field }}` or `{{ task.task_name.field }}`. There is no extra `.result` below `task.<name>`. Do not include execution metadata fields such as `stdout`, `stderr`, `exit_code`, or `duration_ms` in the action's output schema unless they are semantic action data.
+### State and reference policy
 
-Exit `0` for success. Exit non-zero for execution failure. If an external API returns a business-level failure that downstream workflows should inspect, consider exiting `0` with `success: false` in structured output; if the action itself failed to perform its job, exit non-zero.
+- Omitting `enabled` creates enabled metadata and preserves an existing operator enabled override on reload. Explicit values update the declared state. Disabled actions cannot be newly dispatched.
+- `reference_visibility` is `public` by default, `private` for same-pack callers, or `restricted` for the owning pack plus `reference_allowed_pack_refs`. An allowlist belongs only with `restricted`.
+- Action reference policy applies to rules, workflow tasks, and queues. It is separate from permission to execute the action. Ad-hoc metadata without pack context can reference only public actions.
+- Do not assume omission has the same meaning across pack reload and API updates. In particular, workflow-upload APIs preserve omitted reference-policy fields on update, while pack declarations are desired metadata.
 
-### Standard execution environment variables
+### Timeouts and retention
 
-The worker sets these context variables for actions:
+`timeout_seconds` must be positive. An execution snapshots its timeout from an explicit execution override, workflow task `timeout`, action default, then platform default. Changing defaults does not rewrite existing executions. Worker timeouts terminate the process group and finish with status `timeout`.
 
-- `ATTUNE_EXEC_ID` - execution ID.
-- `ATTUNE_ACTION` - action ref.
-- `ATTUNE_PACK_REF` - pack ref derived from the action ref.
-- `ATTUNE_API_URL` - API base URL.
-- `ATTUNE_ARTIFACTS_DIR` - artifact storage root available to the worker.
-- `ATTUNE_RUNTIME_ENVS_DIR` - runtime environment root.
-- `ATTUNE_PARAMETER_DELIVERY` - `stdin` or `file`.
-- `ATTUNE_PARAMETER_FORMAT` - `json`, `yaml`, or `dotenv`.
-- `ATTUNE_PARAMETER_FILE` - only for file delivery.
-- `ATTUNE_RULE` and `ATTUNE_TRIGGER` - only when an enforcement triggered the execution.
+`log_retention_policy`/`log_retention_limit` govern runtime logs. Current source also reads `artifact_retention_policy`/`artifact_retention_limit` for action artifact defaults. Policies are `versions`, `days`, `hours`, or `minutes`; verify limits and effective platform defaults on the target revision.
 
-`ATTUNE_API_TOKEN` is present only when the execution has non-empty permission set refs. Empty action defaults mean the worker omits the token. To request execution-scoped API access by default, set `default_execution_permission_set_refs`, for example `standard` for scoped key/artifact operations and cache reads in the signed action/pack scope, or named permission sets configured in Attune.
+## Parameters and schemas
 
-When an action is called as a workflow task, task-level refs or inherited `default_execution_permission_set_refs` must be a subset of the parent execution's named refs. Ordinary and `with_items` child dispatch fail closed on undelegated named refs; `standard` retains its reserved scoped behavior.
+Execution config is the parameter map itself, never `{"parameters": {...}}`.
 
-Never log `ATTUNE_API_TOKEN`, raw parameter payloads, key values, passwords, or decrypted secrets.
+- Prefer `stdin` with `json`; the worker writes one document and closes stdin. Read all stdin, not just its first line.
+- `file` delivery exposes `ATTUNE_PARAMETER_FILE`. JSON and YAML preserve structured types.
+- `dotenv` is scalar-oriented: objects flatten into dotted names, arrays stringify, null becomes an empty string, and empty objects emit no field. Shell quoting and multiline strings make arbitrary input fragile. Use JSON plus a real parser instead of `eval` or sourcing dotenv.
+- Environment-variable parameter delivery is unsupported. Environment variables carry execution context and explicitly allowed runtime configuration, not general user parameters.
 
-## Attune SDK snippets
+Use flat per-field `parameters` and `output`. Current loaders also accept `param_schema`, `out_schema`, and `output_schema` aliases, but reject duplicate spellings. Prefer `parameters`/`output` in pack files. Use the schema-author skill for named types, nested requiredness, defaults, or secret traversal. Do not put a generic JSON Schema wrapper around the flat document.
 
-When an action is written in Python, Node.js, or Java, prefer the official Attune SDKs for stdin parsing, stdout JSON serialization, context access, and API clients instead of hand-rolled boilerplate. Declare the SDK by package name without a version so this guidance remains valid across compatible releases:
+Mark secret inputs and outputs with `secret: true`. Secret annotations do not authorize reading Keys. The worker restores explicitly resolved secret values, not every system/pack/action Key. Encrypted Key input needs read and decrypt authority and a secret-marked destination. Secret fields cannot contain defaults, consts, enums, or examples in the current compiler.
 
-| Runtime | SDK | Install |
+## Output and failures
+
+Supported `output_format` values are `text`, `json`, `yaml`, and `jsonl`. Keep structured stdout limited to semantic output; send diagnostics to stderr. Use a real serializer. Parsing remains best-effort: malformed JSON/YAML does not necessarily fail a zero-exit process, and malformed JSONL lines can be omitted. Current bound output conformance produces sanitized warnings rather than changing process success; JSONL validates each record separately. Tests must parse and validate output independently.
+
+Parsed regular action output is under execution `result.data`. Workflow result views keep `data` and expose its fields as aliases. Immediate transitions can use `{{ result().data.field }}`; later tasks use `{{ task.fetch.data.field }}`. There is no extra `.result` below `task.fetch`.
+
+Exit zero for successful work and nonzero for execution failure. If downstream logic must inspect an expected business outcome, return a stable field such as `success: false` deliberately rather than hiding infrastructure failure as success.
+
+### Queue-dispatched actions
+
+Use JSON output and pass queue item metadata explicitly through queue `action_params`, including `queue_item` or `queue_items`. Return one `queue_ack.items` entry for each leased numeric item ID, exactly once:
+
+```json
+{"queue_ack":{"version":1,"items":[{"id":1001,"status":"completed"},{"id":1002,"status":"retry","error":{"message":"upstream unavailable"}}]}}
+```
+
+Statuses are `completed`, `failed`, `skipped`, or `retry`. Missing, malformed, duplicate, unexpected, or omitted acknowledgements cause conservative retry handling subject to the queue's retry limit, default `0`. A valid acknowledgement can be honored for any terminal execution status. Test partial batches and duplicate side effects. See the [ack contract](https://docs.attunedev.org/administration/queues/#ack-contract).
+
+## Execution context and API access
+
+The worker supplies `ATTUNE_EXEC_ID`, `ATTUNE_ACTION`, `ATTUNE_PACK_REF`, `ATTUNE_API_URL`, `ATTUNE_ARTIFACTS_DIR`, `ATTUNE_RUNTIME_ENVS_DIR`, and parameter-delivery context. `ATTUNE_RULE`/`ATTUNE_TRIGGER` are conditional. `ATTUNE_API_TOKEN` exists only for non-empty execution permission refs.
+
+Pack processes start with a cleared environment. Operator-controlled `worker.passthrough_env` selects exact extra names. Proxy, CA, package-manager, and cloud credentials do not automatically pass through. Setup and verification commands do not receive execution API tokens. Environment filtering is not filesystem or network isolation.
+
+Use `default_execution_permission_set_refs` only when the action needs API access. `standard` permits scoped key/artifact operations and cache reads in the signed action/pack scope, including containing workflow scope for children. It does not grant event creation, queue writes, signing, or general action execution. For those operations, define and select narrow named grants. Do not infer authority from a token's presence or `accesses_mcp: true`.
+
+Current worker-issued named delegation and newer recorded pack-runtime authority have different readiness. Verify the target admission path; do not assume a published set gives the caller or child authority. Recorded local/external policy bindings and approvals are source-backed but still have production gates. Never enable those gates to make a pack example pass.
+
+The older delegated event-ingress branch admits execution tokens without the newer recorded per-trigger grant check. Do not treat that permissive branch as a scoped security guarantee or rely on it for portable behavior. Declare the intended Events/Create capability and verify the target consumer path.
+
+Human plaintext disclosure is separate from execution input delivery. Reading sensitive results or logs requires destination read/decrypt rights plus rights on every recorded source origin. Changing a Key ref later does not authorize old values.
+
+## SDK pattern
+
+Use an SDK release compatible with the deployed API and pin it in the pack's dependency manifest. Avoid hardcoded versions in reusable guidance, but do pin real deployment dependencies.
+
+| Runtime | Package | Helpers |
 | --- | --- | --- |
-| Python | <https://github.com/attune-system/python-attune-sdk> | Distribution `attune-sdk`; `pip install attune-sdk`; import `attune`; 91 pytest tests pass, including generated OpenAPI contract tests in `test_api_client`, and sdist/wheel builds pass |
-| Node.js | <https://github.com/attune-system/js-attune-sdk> | Package `attune-sdk`; `npm install attune-sdk`; import `attune-sdk` or `attune-sdk/api_client`; 61 tests plus lint/build/package smoke/freshness checks pass; `npm audit` reports 0 vulnerabilities |
-| Java | <https://github.com/attune-system/java-attune-sdk> | Source coordinates `org.attunedev:attune-sdk:0.2.3`; imports under `io.attune`; build or use an attached release JAR until Maven repository publication; 31 JUnit tests pass |
-
-For SDK-based actions, keep the action YAML conventions unchanged: use `parameter_delivery: stdin`, `parameter_format: json`, `output_format: json`, and grant `default_execution_permission_set_refs` only when the action needs Attune API access. The SDKs read the same `ATTUNE_*` environment variables documented above.
-
-These results verify SDK unit/contract and package gates in the recorded working trees, not action calls against a clean Attune API environment.
-
-### Python SDK action
+| Python | `attune-sdk`, import `attune` | `attune.run_action`, `attune.context.client` |
+| Node.js | `attune-sdk` | `runAction`, `context`; generated API functions in `attune-sdk/api_client` |
+| Java | `org.attunedev:attune-sdk`, imports `io.attune` | `Attune.runAction`, `Attune.context().client()`; verify repository/release availability |
 
 ```python
 #!/usr/bin/env python3
@@ -209,425 +151,18 @@ import attune
 
 
 def main(name: str, count: int = 1):
-    return {
-        "greeting": f"Hello, {name}!" * count,
-        "action": attune.context.action_ref,
-        "exec_id": attune.context.execution_id,
-    }
+    if count < 1 or count > 10:
+        raise ValueError("count must be between 1 and 10")
+    return {"greeting": f"Hello, {name}!" * count}
 
 
 attune.run_action(main)
 ```
 
-Use the generated API client through `attune.context.client` when `ATTUNE_API_TOKEN` is present:
+Declare Python dependencies in root `requirements.txt` and Node dependencies in root `package.json`, with compatible pins/lockfiles. SDK tests and package publication are separate from an action smoke test against Attune.
 
-```python
-import attune
-from attune.api_client.api.packs import list_packs
+## Artifacts and completion
 
+Create an artifact/version row before writing durable files to its allocated path. `ATTUNE_ARTIFACTS_DIR` is shared-volume storage or worker-local staging depending on transport; execution-linked files are finalized through the supported transport. An arbitrary file under that directory is only scratch output until registered.
 
-def main():
-    if not attune.context.has_api_token:
-        return {"packs": [], "api_available": False}
-    result = list_packs.sync(client=attune.context.client)
-    return {
-        "packs": None if result is None else [pack.to_dict() for pack in result.items],
-        "api_available": True,
-    }
-
-
-attune.run_action(main)
-```
-
-### Node.js SDK action
-
-```typescript
-import { context, runAction } from "attune-sdk";
-
-function main(params: { name: string; count?: number }) {
-  return {
-    greeting: `Hello, ${params.name}!`.repeat(params.count ?? 1),
-    action: context.actionRef,
-    exec_id: context.executionId,
-  };
-}
-
-runAction(main);
-```
-
-Use the generated API client with the pre-authenticated execution client:
-
-```typescript
-import { context, runAction } from "attune-sdk";
-import { listPacks } from "attune-sdk/api_client";
-
-async function main() {
-  const packs = await listPacks({ client: context.client });
-  return { packs: packs.data };
-}
-
-runAction(main);
-```
-
-### Java SDK action
-
-```java
-import io.attune.Attune;
-
-record Params(String name, int count) {}
-record Result(String greeting, String action, long execId) {}
-
-public class MyAction {
-    public static void main(String[] args) {
-        Attune.runAction(Params.class, params -> new Result(
-            "Hello, " + params.name() + "!".repeat(params.count()),
-            Attune.context().actionRef(),
-            Attune.context().executionId()
-        ));
-    }
-}
-```
-
-For direct API calls, use `new AttuneClient()` or `Attune.context().client()`, both of which read `ATTUNE_API_URL` and `ATTUNE_API_TOKEN` from the execution environment.
-
-## Action YAML Skeleton
-
-Use this as a starting point for a regular action:
-
-```yaml
-ref: mypack.call_api
-label: "Call API"
-description: "Call an external API and return a structured result"
-runner_type: python
-entry_point: call_api.py
-
-parameter_delivery: stdin
-parameter_format: json
-output_format: json
-
-# Optional: grant execution-scoped API access only if the action needs it.
-# default_execution_permission_set_refs:
-#   - standard
-
-# Optional runtime and placement constraints.
-# runtime_version: ">=3.11,<4.0"
-# required_worker_runtimes:
-#   node: ">=20"
-# worker_selector:
-#   zone: us-east-1a
-
-parameters:
-  url:
-    type: string
-    description: "HTTP or HTTPS URL"
-    required: true
-  method:
-    type: string
-    description: "HTTP method"
-    default: "GET"
-    enum: [GET, POST]
-  timeout:
-    type: integer
-    description: "Request timeout in seconds"
-    default: 30
-    minimum: 1
-    maximum: 300
-  token:
-    type: string
-    description: "Optional bearer token"
-    secret: true
-
-output:
-  status_code:
-    type: integer
-    description: "HTTP status code"
-  body:
-    type: string
-    description: "Response body"
-  success:
-    type: boolean
-    description: "True for a 2xx response"
-
-tags:
-  - api
-  - example
-```
-
-For a portable POSIX shell action, use `runner_type: shell`, `parameter_format: dotenv`, and an `.sh` entry point.
-
-For an ordinary native binary action, use `runner_type: native` and set `entry_point` to an executable file inside `actions/`. Symbolic native identifiers such as platform-intercepted core actions are implementation-specific exceptions; do not use one for a regular pack action without verifying that platform handler.
-
-## Implementation Patterns
-
-### Python action with stdin JSON and JSON output
-
-```python
-#!/usr/bin/env python3
-import json
-import sys
-import urllib.request
-import urllib.error
-
-
-def read_params():
-    try:
-        raw = sys.stdin.read()
-        return json.loads(raw) if raw.strip() else {}
-    except json.JSONDecodeError as exc:
-        print(f"ERROR: invalid JSON parameters: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-
-def require_string(params, name):
-    value = params.get(name)
-    if not isinstance(value, str) or not value:
-        print(f"ERROR: '{name}' is required", file=sys.stderr)
-        sys.exit(1)
-    return value
-
-
-def main():
-    params = read_params()
-    url = require_string(params, "url")
-    try:
-        timeout = int(params.get("timeout", 30))
-    except (TypeError, ValueError):
-        print("ERROR: 'timeout' must be an integer", file=sys.stderr)
-        sys.exit(1)
-    token = params.get("token")
-
-    request = urllib.request.Request(url)
-    if token:
-        request.add_header("Authorization", f"Bearer {token}")
-
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read().decode("utf-8", errors="replace")
-            result = {
-                "status_code": response.status,
-                "body": body,
-                "success": 200 <= response.status < 300,
-            }
-            print(json.dumps(result, separators=(",", ":")))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        print(json.dumps({
-            "status_code": exc.code,
-            "body": body,
-            "success": False,
-        }, separators=(",", ":")))
-    except Exception as exc:
-        print(f"ERROR: request failed: {exc.__class__.__name__}", file=sys.stderr)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-Local tests:
-
-```bash
-printf '%s\n' '{"url":"https://example.com","timeout":10}' | python3 call_api.py
-printf '%s\n' '{}' | python3 call_api.py
-```
-
-### Node.js action with stdin JSON
-
-```javascript
-#!/usr/bin/env node
-
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => { input += chunk; });
-process.stdin.on('end', () => {
-  let params;
-  try {
-    params = input.trim() ? JSON.parse(input) : {};
-  } catch (err) {
-    console.error(`ERROR: invalid JSON parameters: ${err.message}`);
-    process.exit(1);
-  }
-
-  if (typeof params.message !== 'string' || params.message.length === 0) {
-    console.error("ERROR: 'message' is required");
-    process.exit(1);
-  }
-
-  process.stdout.write(JSON.stringify({ message: params.message }));
-});
-```
-
-### POSIX shell action with constrained stdin dotenv
-
-Use this only for simple scalar values that exclude single quotes, backslashes, and newlines. Dotenv is not a general-purpose structured transport; use stdin JSON with a real parser for arbitrary user-controlled strings.
-
-```sh
-#!/bin/sh
-set -e
-
-message=""
-uppercase="false"
-count="1"
-
-while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    key="${line%%=*}"
-    value="${line#*=}"
-
-    case "$value" in
-        \"*\") value="${value#\"}"; value="${value%\"}" ;;
-        \'*\') value="${value#\'}"; value="${value%\'}" ;;
-    esac
-
-    case "$value" in
-        *\\*|*\'*) echo "ERROR: unsupported quoted or multiline dotenv value" >&2; exit 1 ;;
-    esac
-
-    case "$key" in
-        message) message="$value" ;;
-        uppercase) uppercase="$value" ;;
-        count) count="$value" ;;
-        *) echo "ERROR: unsupported dotenv key: $key" >&2; exit 1 ;;
-    esac
-done
-
-if [ -z "$message" ]; then
-    echo "ERROR: message is required" >&2
-    exit 1
-fi
-
-case "$uppercase" in
-    true|True|TRUE|yes|Yes|YES|1) uppercase="true" ;;
-    *) uppercase="false" ;;
-esac
-
-case "$count" in
-    ''|*[!0-9]*) echo "ERROR: count must be a non-negative integer" >&2; exit 1 ;;
-esac
-
-if [ "$uppercase" = "true" ]; then
-    message=$(printf '%s' "$message" | tr '[:lower:]' '[:upper:]')
-fi
-
-while [ "$count" -gt 0 ]; do
-    printf '%s\n' "$message"
-    count=$((count - 1))
-done
-```
-
-Local tests:
-
-```bash
-printf 'message='"'"'hello'"'"'\nuppercase=true\ncount=2\n' | ./echo_message.sh
-printf '' | ./echo_message.sh
-```
-
-### Structured output from shell
-
-Do not hand-roll JSON string escaping in POSIX shell. Correct JSON escaping must cover control characters, newlines, and Unicode as well as quotes and backslashes. Use a real serializer such as Python, Node.js, or a declared and tested `jq` dependency. If none is available, use `output_format: text` and constrain the output contract accordingly.
-
-### File parameter delivery
-
-Use file delivery only when justified:
-
-```yaml
-parameter_delivery: file
-parameter_format: json
-```
-
-```python
-#!/usr/bin/env python3
-import json
-import os
-import sys
-
-path = os.environ.get("ATTUNE_PARAMETER_FILE")
-if not path:
-    print("ERROR: ATTUNE_PARAMETER_FILE is not set", file=sys.stderr)
-    sys.exit(1)
-
-with open(path, "r", encoding="utf-8") as handle:
-    params = json.load(handle)
-```
-
-## Design Guidance
-
-1. Choose the simplest runtime that can safely handle the data.
-   - Use POSIX shell plus dotenv for simple scalar parameters and portable utilities.
-   - Use Python or Node.js for JSON APIs, nested objects, arrays, complex validation, or non-trivial escaping.
-   - Use native only for compiled binaries or platform-provided native actions.
-
-2. Keep parameters and environment variables separate.
-   - Parameters come from stdin or the parameter file.
-   - `ATTUNE_*` variables provide execution context.
-   - Custom environment variables are for non-sensitive runtime configuration only.
-
-3. Protect secrets.
-   - Prefer Attune keys and execution-scoped access instead of direct secret parameters.
-   - Mark direct secret parameters with `secret: true`.
-   - Never print raw parameters, tokens, credentials, decrypted keys, or `ATTUNE_API_TOKEN`.
-
-4. Make outputs workflow-friendly.
-   - Use `output_format: json` for structured data that workflows consume.
-   - Keep the output object semantic and stable.
-   - Document fields in `output`; use `{{ result().data.<field> }}` immediately after a task and `{{ task.<name>.data.<field> }}` for named prior-task access.
-
-5. Be explicit about Attune API/MCP access.
-   - Do not assume `ATTUNE_API_TOKEN` exists.
-   - If required, fail early with a clear stderr message when absent.
-   - Set `default_execution_permission_set_refs` only to the minimum required refs.
-   - For MCP-capable actions, current core practice is to use the local `attune-mcp` binary over stdio with the execution-scoped token.
-
-6. Avoid hidden dependencies.
-   - Declare Python dependencies in pack-level `requirements.txt` and Node dependencies in pack-level `package.json`.
-   - Do not require `jq`, `yq`, `bash`, `curl`, or language packages unless the target worker image/runtime guarantees them or the pack declares them.
-   - Core-pack-style shell is POSIX `#!/bin/sh` and avoids nonessential dependencies; current HTTP-like core actions use `curl`.
-
-7. Treat artifacts as first-class outputs.
-   - Stdout/stderr are execution streams and logs.
-   - For files that must persist, create/update Attune artifacts through supported APIs or execution-scoped tooling.
-   - Do not write untracked important outputs into arbitrary local paths.
-
-## Validation Checklist
-
-Before returning or approving an action, verify:
-
-- [ ] Files are under `actions/`: one metadata YAML file and one entry-point script/binary unless this is a workflow/native special case.
-- [ ] `ref` is lowercase and exactly `<pack_ref>.<action_name>`.
-- [ ] YAML includes `label`, `description`, explicit `runner_type`, `entry_point`, `parameter_delivery`, `parameter_format`, and `output_format`.
-- [ ] `enabled` is intentional; disabled actions cannot be dispatched.
-- [ ] Parameter schema is flat, with inline `required: true` and `secret: true` where appropriate.
-- [ ] New pack YAML uses `output` for structured output schema; any `output_schema` use is justified by existing local convention/tooling.
-- [ ] Script reads stdin or `ATTUNE_PARAMETER_FILE`, not `ATTUNE_ACTION_*` parameter variables.
-- [ ] Required fields, types, enum/range expectations, and missing token conditions are validated with safe error messages.
-- [ ] Secrets and tokens are never printed, interpolated into avoidable command lines, or included in artifacts/logs.
-- [ ] Stdout contains only intended output for the declared `output_format`; diagnostics go to stderr.
-- [ ] JSON/YAML/JSONL output is valid and matches the schema; tests fail on malformed output because worker parsing alone is best-effort.
-- [ ] Exit codes distinguish execution failure from semantic/business failure.
-- [ ] Runtime dependencies are declared or avoided.
-- [ ] Local test commands cover success, empty input, missing required input, invalid types, and failure paths.
-- [ ] Workflow examples use `result().data.<field>` for the immediate result or `task.<name>.data.<field>` for a named prior task.
-- [ ] Artifact and log-retention implications are noted for large or long-lived outputs.
-
-## Failure Modes to Avoid
-
-- Reading user parameters from environment variables.
-- Using unsupported `parameter_delivery: env`.
-- Writing nested JSON Schema-style parameter wrappers for new actions.
-- Relying on `output_schema` for new pack-loader YAML without confirming local tooling maps it to `output`/`out_schema`.
-- Declaring `output_format: json` while printing logs to stdout before the result.
-- Including `stdout`, `stderr`, `exit_code`, or `duration_ms` in output schemas as execution metadata.
-- Logging raw stdin, full parameter maps, tokens, passwords, or decrypted key values.
-- Requiring undeclared tools or language packages.
-- Using bash-only syntax in an action intended to run as portable shell.
-- Writing generated files into read-only pack directories.
-- Assuming `ATTUNE_API_TOKEN` is always present.
-- Creating untracked files instead of first-class artifacts for persistent outputs.
-
-## Invocation Prompts
-
-- "Act as Attune Action Author. Create a `github.create_issue` action in Python. Inputs: repo, title, body, token key ref. Output JSON with issue number and URL."
-- "Act as Attune Action Author. Review these action YAML and shell files for Attune conventions and security issues."
-- "Act as Attune Action Author. Convert this bash script into a portable POSIX shell action using stdin dotenv parameters."
-- "Act as Attune Action Author. Design schemas and output format for an action that returns structured data to a workflow."
+Before finishing, verify refs/files, transport, flat schemas, timeout, placement, permission selection, parseable output, exit behavior, dependency installation outside the pack, and secret-safe logs. Report commands run and any runtime behavior not verified.

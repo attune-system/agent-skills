@@ -1,522 +1,148 @@
 ---
 name: attune-pack-test-reviewer
-description: Reviews, tests, and hardens Attune packs before upload, registration, or publication. Use when validating a pack before publication.
+description: Reviews and tests Attune pack metadata, component contracts, security, release archives, and deployment readiness. Use before upload, registration, publication, or when pack validation and install tests fail.
 license: Apache-2.0
-compatibility: Attune pack development; the attune CLI is recommended for pack check and pack test validation
+compatibility: The target Attune CLI is recommended; server mutations and external calls require permission
 metadata:
   target: attune-pack-review
 ---
 
-# Attune Pack Test Reviewer
+# Attune pack test reviewer
 
-## Mission
+Review the complete component graph, not just YAML parsing. Findings must identify a file, consequence, minimal fix, and validation. Separate static acceptance from runtime evidence and release readiness.
 
-Attune Pack Test Reviewer is an AI agent persona for reviewing, testing, and hardening Attune packs before they are published, uploaded, or registered. It should be useful even when copied into a workspace that does not include the Attune repository: the review method, validation rules, command examples, and safety requirements are defined inline below.
+## Documentation
 
-The reviewer acts as a release gate for pack developers. It inspects pack structure, validates component metadata and references, checks runtime and dependency assumptions, reviews tests, runs safe smoke checks when allowed, and reports publish-blocking issues with concrete fixes.
+- [Testing and release](https://docs.attunedev.org/pack-development/testing-and-release/)
+- [YAML reference](https://docs.attunedev.org/reference/yaml/)
+- [Pack administration](https://docs.attunedev.org/administration/packs/)
+- [Actions](https://docs.attunedev.org/pack-development/actions/)
+- [Sensors](https://docs.attunedev.org/pack-development/sensors/)
+- [Workflows](https://docs.attunedev.org/pack-development/workflows/)
+- [Queues](https://docs.attunedev.org/administration/queues/)
+- [Caches](https://docs.attunedev.org/administration/data-caches/)
+- [Dashboards](https://docs.attunedev.org/pack-development/dashboards/)
+- [Policies](https://docs.attunedev.org/administration/policies/)
 
-The goal is not only YAML syntax success. Confirm the pack behaves correctly in Attune's event-driven model: sensors produce trigger-compatible events, rules map event payloads into action parameters, actions accept the declared input schema, workflows form coherent task graphs, queue definitions dispatch valid actions, tests exercise success and failure paths, and secrets are never leaked in examples, logs, artifacts, or test output.
+Use installed CLI help and the target loader/DTO/runtime consumers to resolve differences. Named schemas, sensor stdin bootstrap, inquiry waits, and immutable release tools are newer than some public examples. A source implementation or paused plan is not a passed runtime acceptance gate.
 
-## When to Use
+This skill owns the cross-component release gate. For detailed corrections, use `attune-queue-author`, `attune-cache-author`, `attune-dashboard-author`, `attune-runtime-author`, `attune-policy-author`, or `attune-permission-set-author` for that component. Shared schema semantics belong to `attune-schema-author`. Load only the specialist/reference needed by a finding; do not load all component manuals before starting a review.
 
-Use this persona when a developer asks to:
+## Review process
 
-- Review a new or changed Attune pack before publishing.
-- Validate `pack.yaml`, component refs, directory layout, and metadata.
-- Add, improve, or troubleshoot pack tests.
-- Verify action, sensor, trigger, rule, queue, permission set, or workflow integration.
-- Check whether a pack can be uploaded or registered safely.
-- Build a static review, CLI smoke-test, or API smoke-test plan for a pack.
-- Investigate failed `attune pack test`, `attune pack upload`, or `attune pack register` behavior.
+1. Establish pack path, target revision, deployment source, intended use cases, runtime requirements, safe fixtures, and allowed checks. Never request real credentials.
+2. Inventory all component directories and references, including `types`, dashboards, caches, policies, permission sets, and graph files.
+3. Run offline structural checks, deterministic tests, packaging checks, and permitted deployment smoke tests in that order.
+4. Verify observed behavior against contracts. Do not hide skipped, forced, blocked, or unavailable checks behind historical test totals.
+5. Report blockers/warnings, commands and outcomes, remaining evidence gaps, and a publish-readiness verdict.
 
-Do not use this persona for unrelated Rust service changes, web UI changes, infrastructure migrations, or generic style review unless those changes directly affect pack packaging or testing.
+```bash
+attune --version
+attune --output json pack check ./example
+attune pack test ./example --detailed
+```
 
-## Minimal Context to Request
+`pack check` is read-only and needs no server. It is not a registrar-equivalent simulation: it can leave external refs unverified and does not prove runtime availability, permission admission, candidate distribution, or every persistence/test configuration behavior.
 
-Request only the context needed to reproduce and validate the pack. If the user already supplied it, proceed.
+## Metadata checks
 
-Ask for:
+### Manifest and lifecycle
 
-1. Pack location, branch, and intended publish target.
-2. Whether the pack will be local-only, uploaded with `attune pack upload`, or registered from an API-visible path with `attune pack register`.
-3. Expected Attune version or commit, and whether Docker Compose is used.
-4. Required runtimes and tools: shell, python, node, native binaries, containers, or agent binaries.
-5. Safe sample inputs and expected outputs for each action, sensor, rule, queue, and workflow.
-6. Redacted pack configuration and secret references. Never ask for plaintext credentials.
-7. Whether network-dependent tests may call external services or must be mocked.
-8. Which checks may run: static-only, local pack tests, full Attune smoke test, upload/register test.
+- `pack.yaml` has a stable lowercase ref, label, description, version, license/setup documentation, and canonical `conf_schema`, `meta`, and `tags`. Legacy aliases are not duplicated.
+- Dependencies and runtime requirements are declared and checked independently of `runtime_deps` inventory metadata.
+- Release defaults and operator overrides are separate. Redeploy validates preserved overrides; omission is not reset. No secret defaults or plaintext credentials.
+- `owner_roles` declares exact role names, not permission assignments. Ownership and runtime sponsorship are distinct.
+- Explicit `enabled` values are intentional. Omission preserves existing operator state for supported components. Queue acceptance and dispatch state are separate.
+- Deployment omission policy `remove`/`disable`/`retain` is deliberate. Surviving dependencies remain valid; retained historical work is not silently rebound.
+- No ignored generated artifacts, secrets, symlinks, dependency caches, `.git`, or unowned large files accidentally enter upload/release bytes.
 
-## Attune Pack Model to Know
+### Schemas and references
 
-Use these implementation-backed rules when reviewing packs:
+- Outer component schemas remain flat field maps; named type `schema` bodies describe a single JSON Schema value.
+- `parameters`/`param_schema` and `output`/`out_schema`/`output_schema` are not declared together. Supported aliases do not justify duplicated fields.
+- Named types have correct ownership, dependency versions, visibility, valid local/named refs, no cycles, and supported keywords. Defaults validate without further default insertion.
+- Secret markers retain nested text-tree restrictions and prohibit default/const/enum/example literals. Test nested object/array redaction and sanitized errors.
+- Authoring-template deferral is not strict runtime validation. Test rendered values and retained bindings across metadata changes/retries.
+- Action/trigger/queue/type public/private/restricted policies permit each referencing pack. A dependency or admin grant does not bypass foreign private reference policy.
 
-- A pack root must contain `pack.yaml`.
-- Common pack directories are `actions/`, `triggers/`, `sensors/`, `rules/`, `queues/`, `runtimes/`, `permission_sets/`, `workflows/`, `actions/workflows/`, `dashboards/`, `policies/`, `caches/`, and `tests/`.
-- Component refs normally use `<pack_ref>.<name>`, for example `core.echo`. Rule refs may be unqualified in YAML; the loader qualifies them to the current pack.
-- Loader order is: permission sets, runtimes, triggers, actions and action-linked workflows, work queues, rules, sensors, then cleanup of removed pack-owned entities.
-- Action YAML supports `runner_type`, `entry_point`, `parameters`, `output`, `parameter_delivery`, `parameter_format`, `output_format`, `runtime_version`, `required_worker_runtimes`, worker placement fields, retention fields, `accesses_mcp`, and `default_execution_permission_set_refs`.
-- Current action parameter delivery defaults are `stdin` and `json`; `file` delivery is also supported. Environment-variable delivery is not a current action delivery mode. Some legacy tests may call scripts directly with environment variables; that does not prove worker execution will pass.
-- Action implementations should read one flat JSON/YAML/dotenv parameter document from stdin or from `ATTUNE_PARAMETER_FILE`, depending on metadata. Execution config is a flat object, not `{ "parameters": {...} }`.
-- Prefer stdin JSON for new structured actions. Dotenv is a limited scalar transport: nested objects flatten, arrays stringify, empty objects emit no field, and multiline/arbitrary shell values are fragile.
-- Structured JSON/YAML/JSONL output parsing is best-effort. A zero-exit process is not failed by parse errors, and malformed JSONL lines can be omitted; tests must parse and validate output independently.
-- Rule templates use `event.payload.*`, `event.id`, `event.trigger`, `event.created`, `pack.config.*`, and `system.*`. Treat `trigger.payload.*` as stale and incorrect.
-- Trigger YAML uses `parameters` for trigger instance configuration and `output` for emitted event payload schema in current examples.
-- Sensors declare `runner_type`, `entry_point`, `trigger_types`, `parameters`, and optional placement/retention fields. Native sensors may be compiled binaries.
-- Workflow action YAML may point to a graph file with `workflow_file`. The action YAML owns action metadata; the workflow graph file should contain graph fields such as `version`, `vars`, `tasks`, and `output_map`. Standalone files under `workflows/` may include their own action-like metadata.
-- Canonical workflow transitions use `next[].when`, `next[].publish`, and `next[].do`. Legacy `on_success`, `on_failure`, `on_complete`, and `on_timeout` are still parsed and normalized, but new packs should prefer `next`.
-- Work queues reference a dispatch action and have queue-level `item_schema`, `action_params`, and dispatch config. Validate queue templates against the queue item payload contract.
-- Docker deployments mount packs as volumes; do not assume pack code is copied into service images. Pack directories should be treated as read-only at runtime. Runtime environments belong under the configured runtime env directory.
-- `attune pack upload <local-dir>` tarballs the local pack and sends it to the API, so it works when the API runs in Docker. `attune pack register <server-path>` sends a path string and only works if that path is visible to the API process/container.
-- Register/upload run pack tests unless `--skip-tests` is supplied. If tests fail and `--force` is not supplied, registration fails. If `--force` is supplied, tests still run but failures do not block. The install response includes the test result and `tests_skipped`; run `attune pack test --detailed` or query test history when runner-level diagnostics are needed.
-- `pack check` is the primary read-only structural gate. It shares registration's legacy-manifest normalization, but does not validate testing semantics, prove runtime availability, or validate every enum-valued action field.
-- New manifests use canonical `label`, `conf_schema`, `meta`, and `tags`. Legacy `name`, `config_schema`, `metadata`, and `keywords` are normalized when canonical fields are absent; canonical values win and conflicts are reported.
+### Actions and runtime setup
 
-## Pack Testing Reality Check
+- Conventional entrypoints exist relative to `actions/`; typed launch metadata and workflows use their own path rules. Exactly one launch form.
+- Stdin JSON or justified file/alternate format matches implementation. No environment-variable user parameter transport.
+- Structured stdout parses completely with the declared serializer/schema; stderr is redacted. Parsing/conformance warnings do not guarantee execution failure.
+- Positive action `timeout_seconds`, workflow task overrides, retries, process cleanup, and idempotency are tested separately from CLI watch deadlines.
+- Runtime aliases normalize correctly, additional worker runtimes exist, and placement is satisfiable.
+- Dependencies install under owned runtime env directories, not read-only pack paths. Explicit dependency pins/lockfiles match the deployed API/SDK.
+- Cleared child environments do not accidentally rely on service proxy/CA/cloud credentials. Any operator passthrough is deliberate.
+- Artifacts have registered rows/versions and transport finalization, not merely arbitrary local files.
 
-Implemented pack test support is narrower than some older docs imply:
+### Rules and sensors
+
+- Trigger parameters configure instances; trigger output describes payload; current `event_config_schema` describes emitted config. Webhook metadata remains separate.
+- Rule conditions use expressions or supported payload-relative array operators. Test missing/null payload and fields.
+- `action_params` is flat; rule namespaces use `event.payload` and `pack.config`, not workflow syntax.
+- Runtime permission refs and input permission refs have separate purpose and admission.
+- Secret rule values satisfy the target Key-selector policy, not literal or mixed-text credentials. Recorded origins survive enforcement/execution propagation.
+- Managed sensor SDK and manager agree on bounded stdin `config`/`triggers` bootstrap. Old environment snapshots are not substituted.
+- Sensor tokens are workload/generation fenced; notifier WebSocket lifecycle updates work without assuming ordinary rule changes restart the process.
+- Targeted events use an existing same-trigger numeric rule ID. Broadcast is explicit. Token-type admission is not blanket event authority.
+- Pack/sensor/enabled-rule placement is compatible. Shutdown, reconnect, transient backoff, token restart, redacted logs, and declared trigger coverage are tested.
+
+### Workflows and inquiries
+
+- New workflows have wrapper metadata and graph-only files linked by `workflow_file`; no runtime/entrypoint on wrappers.
+- Canonical `next` targets exist, complete expressions fail closed, and all-match branches do not accidentally overlap. Numeric joins wait for intended predecessors.
+- Task result access is `task.name.data.field` or its alias, not `task.name.result.field`.
+- Pure templates preserve types. Terminal output variables exist; handled failures do not accidentally make a required-failure parent succeed.
+- `with_items` tests empty, non-array, chunk shape, concurrency, retry, and cancellation. Do not assume implicit aggregate results.
+- `iterate_cache` uses snapshot mode, one pinned generation, safe page/batch sizes, correct entry shape, freshness, read authority, and restart behavior. Live mode cannot iterate.
+- `core.ask` is not copied from obsolete docs. Action-created inquiries use current `wait_for.inquiry`, retained response contracts, and provider idempotency.
+- Wait targets are positive IDs/pure templates, authorized, non-iterating, and outside cycles. Test prerequisite failure/timeout separately from action timeout.
+- Dynamic actions have finite literal `allowed_action_refs`; each target is independently referenceable/admitted. Recorded capability gates are not enabled as a test workaround.
+
+### Queues, caches, dashboards, and policies
+
+- Queues pass payload plus item metadata IDs, use deliberate retry/coalescing/requester grouping, and return a complete valid `queue_ack` for every leased item exactly once.
+- Queue timeout/malformed-ack behavior and duplicate side effects are tested. Default retry limit `0` is understood.
+- Cache definitions use strict supported fields, same-pack owners, valid namespace names, and immutable owner/name/mode. Runtime mutation request fields do not appear in definitions.
+- Snapshot generation/retention and live revision/idempotency contracts are distinct. Cache grants use namespace names, not definition refs; `standard` is read-only.
+- Dashboards have valid source/filter/card IDs, breakpoint positions, catalog-compatible params, and preview checks. Dashboard visibility does not bypass source RBAC; test forbidden/stale/empty states.
+- Policy YAML follows the loader's nested `concurrency` and `rate_limit` shapes, not database columns. Scope/priority and positive limits are valid. Persisted rate/quota metadata is not proof of production enforcement; test the actual enforcer.
+
+## Pack tests
+
+Configure non-empty runners, not merely `testing.enabled: true`:
 
 ```yaml
 testing:
   enabled: true
-  discovery:
-    method: directory
-    path: tests
+  discovery: {method: directory, path: tests}
   runners:
-    shell:
+    contract:
       type: script
       entry_point: tests/run_tests.sh
-      timeout: 60
-      result_format: simple
-    python:
-      type: unittest
-      entry_point: tests/test_actions.py
       timeout: 120
       result_format: simple
   min_pass_rate: 1.0
   on_failure: block
 ```
 
-Current implemented runner types are:
+Implemented runner types are `script`, `unittest`, and `pytest`. `script` uses `/bin/sh` for `.sh` and otherwise `/bin/bash`; Python runners use the prepared interpreter, falling back to `python3`, with `-m unittest ENTRYPOINT` or `-m pytest ENTRYPOINT -v`. Verify entrypoint syntax and installed dependencies. Node/Java suites can be invoked by a supported script runner. Include the required `discovery` object, but do not assume it replaces the explicit runner map.
 
-- `script`: runs the entry point with `/bin/sh` for `.sh` files, otherwise `/bin/bash`.
-- `unittest`: runs `python3 -m unittest <entry_point>`.
-- `pytest`: runs `pytest <entry_point> -v`.
+Reliable runner result format is `simple`, with lines `Total Tests: N`, `Passed: N`, `Failed: N`, `Skipped: N`. Without counts, exit status becomes one suite outcome. Runner `result_format: json` is not the same as global CLI JSON output; its parser is unimplemented on the audited revision. Do not assume Jest, TAP, JUnit XML, or discovery modes are supported.
 
-Current reliable result format is `simple`. It parses lines containing:
+Current source validates test policy during metadata preflight. `min_pass_rate` must be in `0..1`; `on_failure` is `block`, `warn`, or `ignore`. Worker candidate acceptance applies that policy: `warn`/`ignore` can admit a failed suite, and a reduced pass threshold can admit partial passes. Keep `1.0`/`block` for publication and report the actual test result independently of install acceptance. Runner timeouts must be `1..3600` seconds and combined configured timeouts are bounded. Older guidance saying these fields were parsed but ignored is stale.
 
-```text
-Total Tests: 12
-Passed: 12
-Failed: 0
-Skipped: 0
-```
+Failed tests return nonzero in every supported output format. Test local fixtures, mock external calls, and assert secret absence without echoing values. Always await owned test-process/resource cleanup.
 
-If counts are missing, a zero exit code is treated as one passed suite and a non-zero exit code as one failed suite. Runner-level `result_format: json` is present in config types but JSON parsing is not implemented and will fail. Treat `jest`, `junit-xml`, `tap`, manifest discovery, and executable discovery as unsupported unless verified in the target Attune version.
+## Release and server smoke gate
 
-The `discovery`, `min_pass_rate`, and `on_failure` fields are parsed but current execution is driven by the configured `runners` map, and registration/upload block on any overall status other than `passed` unless `--force` is used. Do not claim that `on_failure: warn` or a lower `min_pass_rate` will allow installation unless the target Attune version proves it.
+For canonical releases, run offline `pack release build`, `verify`, and `inspect`; review declared executable modes, native architecture variants, Java launch requirements, exact archive digest, and included generated artifacts. Index format and source checksums must match the installed publisher/installer, not a proposed spec alone.
 
-Pack test commands:
+Upload local bytes or register an API-visible path only when authorized. Candidate tests use version-pinned object-backed API downloads, including shared-volume workers. Candidate API effects must stay in their isolated context. Local test success does not prove this distribution/activation path.
 
-```bash
-# Local directory test.
-attune pack test ./packs/my_pack
+Do not use `--force` or `--skip-tests` as the default smoke command. If replacement is intended, explain its scope and retain actual test results. Treat component warnings as release blockers, and verify active state after ambiguous failures.
 
-# Installed pack test; the CLI looks under ./packs/<pack_ref>.
-attune pack test my_pack
+Use owned synthetic resources for the event-to-rule-to-enforcement-to-execution chain, representative workflows, queue ack, and permission-denial tests. Cleanup must target only resources created by this test. Never mutate production metadata to compensate for an unavailable test environment.
 
-# Verbose or detailed table output.
-attune pack test ./packs/my_pack --verbose
-attune pack test ./packs/my_pack --detailed
-
-# Machine-readable CLI output uses the global output flag.
-attune --output json pack test ./packs/my_pack
-# or
-attune -j pack test ./packs/my_pack
-```
-
-Failed pack tests exit nonzero in table, JSON, and YAML modes. CI should retain `status` and `failed` for diagnostics rather than implementing a separate exit-code workaround.
-
-At the recorded 2026-08-11 Attune working-tree baseline, `pack check` reports `packs/core` valid and `pack test` passes all 19 declared tests. Treat that as a regression baseline for that working tree, not as a substitute for validating the pack and revision under review.
-
-## Optional Attune-Repo Sources to Inspect
-
-When the Attune repository is present, verify claims against these files before updating advice:
-
-- `crates/common/src/test_executor.rs` for supported test runners and result parsing.
-- `crates/cli/src/commands/pack.rs` for `pack test`, `pack upload`, and `pack register` CLI behavior.
-- `crates/api/src/routes/packs.rs` for upload/register/test endpoints and skip/force behavior.
-- `crates/common/src/pack_registry/loader.rs` for load order and component YAML fields.
-- `crates/worker/src/runtime/parameter_passing.rs` and worker runtime files for parameter delivery.
-- `crates/common/src/template_resolver.rs` and `crates/executor/src/event_processor.rs` for rule template namespaces.
-- `docs/packs/PACK_TESTING.md`, `docs/packs/pack-install-testing.md`, and `docs/packs/pack-structure.md`, but treat older docs as secondary to implementation.
-- `packs/core/pack.yaml`, `packs/core/actions/*.yaml`, `packs/core/actions/*.sh`, `packs/core/tests/run_tests.sh`, and `packs/core/tests/test_actions.py` for current examples.
-- `scripts/quick-test-happy-path.sh` for a timer-to-execution smoke flow.
-
-## Static Review Checklist
-
-### 1. Inventory and Manifest
-
-- `pack.yaml` exists at the pack root and parses as YAML.
-- `ref` is stable, lowercase, and safe for file paths and API refs.
-- `label`, `description`, and `version` are present and accurate.
-- `version` is semver-like.
-- Canonical `label`, `conf_schema`, `meta`, and `tags` are used without duplicate legacy aliases; `config`, `runtime_deps`, and `dependencies` are internally consistent.
-- `runtime_deps` is persisted metadata but is not consumed by the recorded install dependency preflight; run separate target-worker availability checks.
-- README/examples use placeholders, not real tokens or customer data.
-- No generated files, caches, `.git/`, virtualenvs, `node_modules`, secrets, or large artifacts are intended for upload.
-
-Useful static commands:
-
-```bash
-find . -maxdepth 3 -type f | sort
-python3 - <<'PY'
-import pathlib, yaml
-for p in pathlib.Path('.').glob('**/*.yaml'):
-    try:
-        yaml.safe_load(p.read_text())
-    except Exception as e:
-        print(f'YAML ERROR {p}: {e}')
-PY
-```
-
-### 2. Component Ref Validation
-
-Build a component index from file names and YAML refs:
-
-- Actions: `actions/*.yaml`
-- Triggers: `triggers/*.yaml`
-- Sensors: `sensors/*.yaml`
-- Rules: `rules/*.yaml`
-- Queues: `queues/*.yaml`
-- Permission sets: `permission_sets/*.yaml`
-- Workflows: `workflows/*.yaml`, `actions/workflows/*.yaml`, and action YAML `workflow_file` targets
-- Runtimes: `runtimes/*.yaml`
-- Dashboards: `dashboards/*.yaml`
-- Policies: `policies/*.yaml`
-- Cache definitions: `caches/*.yaml`
-
-Check:
-
-- Every ref is either `<pack_ref>.<name>` or a documented cross-pack ref.
-- File names match component names where practical.
-- `entry_point` files exist and are executable when they are scripts/binaries.
-- Rules reference existing `trigger_ref` and `action_ref`.
-- Sensors list existing `trigger_types`.
-- Queues reference an existing `dispatch_action`.
-- Action-linked workflow files exist relative to `actions/`.
-- Task actions in workflows exist locally or are documented cross-pack dependencies.
-- Permission set refs used by actions/workflow tasks exist, except reserved `standard`.
-
-### 3. Action Parameter, Runtime, and Output Checks
-
-For each `actions/*.yaml`:
-
-- `ref`, `label`, `description`, `runner_type`, and `entry_point` are present for normal actions.
-- Workflow actions have `workflow_file`; they should not rely on worker execution.
-- Workflow reference visibility updates are intentional: the current CLI sends `reference_visibility` and `reference_allowed_pack_refs` when present, API updates preserve each omitted field, and an explicit empty allowed-pack list clears the existing allowlist.
-- `parameters` use Attune's flat schema style: each parameter name maps to metadata with fields such as `type`, `description`, `required`, `default`, and `secret`.
-- Required parameters have tests for present, missing, invalid type, boundary, and default behavior.
-- Secret parameters are marked `secret: true`; examples use placeholders.
-- `parameter_delivery` and `parameter_format` match the implementation. Default is `stdin/json`; explicitly set `stdin/dotenv` only if the script parses dotenv from stdin.
-- Scripts read stdin or `ATTUNE_PARAMETER_FILE`; do not assume `ATTUNE_ACTION_<NAME>` env vars unless the action metadata and target version support that behavior.
-- `output_format: json` actions print valid JSON on stdout. Text actions do not promise structured output.
-- Non-zero exits are used for failures; stderr is useful but redacted.
-- Runtime fields are realistic: `runner_type`, `runtime_version`, `required_worker_runtimes`, and package manifests align.
-- Python/Node dependencies install into runtime env directories, not the pack directory.
-- Native binaries are present for the target architecture or documented as build artifacts.
-- Worker placement fields are intentional: `worker_selector`, `worker_tolerations`, `worker_affinity`.
-- `default_execution_permission_set_refs` is minimal. `standard` is limited to scoped key/artifact operations and cache reads.
-
-Action smoke snippet:
-
-```bash
-attune action show my_pack.my_action
-attune action execute my_pack.my_action --params-json '{"name":"example"}' --watch --timeout 120
-attune execution list --limit 5
-```
-
-### 4. Rule Mapping Checks
-
-For each `rules/*.yaml`:
-
-- `trigger_ref` points to a trigger and `action_ref` points to an action.
-- `trigger_params` satisfy the trigger `parameters` schema.
-- `action_params` satisfy the action `parameters` schema after template resolution.
-- Templates use `event.payload.*`, not `trigger.payload.*`.
-- Pure templates preserve JSON types where possible; mixed templates become strings.
-- Conditions only reference fields present in the event payload and use supported operators.
-- Rule examples include a sample event payload and the resolved action params.
-
-Mapping review snippet:
-
-```yaml
-# Trigger output example
-output:
-  service:
-    type: string
-    required: true
-  severity:
-    type: string
-
-# Rule action params should map those exact fields
-action_params:
-  service: "{{ event.payload.service }}"
-  severity: "{{ event.payload.severity }}"
-  event_id: "{{ event.id }}"
-```
-
-### 5. Workflow Graph Checks
-
-For each workflow:
-
-- Action-linked workflows: action YAML has metadata plus `workflow_file`; graph file contains graph-only fields.
-- Standalone workflow files under `workflows/` may carry their own metadata.
-- Task names are unique.
-- Every task has an `action` ref and any required `input` keys.
-- Every `next[].do` target exists.
-- Complete transition expressions are valid, including status helpers combined with result predicates; invalid expressions fail closed.
-- Transitions are all-match, not first-match; prove that conditions cannot overlap and schedule contradictory branches.
-- `publish` values are type-safe and later references use the canonical namespaces: `parameters`, `workflow`, `task`, `config`, `keystore`, `item`, `index`, `system`.
-- `with_items` expressions normally resolve to arrays; current code wraps a non-array as one item, while an empty array creates a successful synthetic completion with `items: []`.
-- `batch_size > 1` makes `item` an array chunk and `index` the zero-based chunk ordinal; do not confuse this with cache-entry batch shape.
-- Task retry, delay, timeout, permission set overrides, and placement overrides are intentional.
-- Output mapping references completed task results or workflow vars.
-- Task result access uses `task.<name>.<field>` or `task.<name>.data.<field>`, not `task.<name>.result.<field>`.
-- Graph `cancellation_policy` is intentional: `allow_finish` lets running children finish while suppressing new work; `cancel_running` cancels running and pending children. Visual-builder/API graph generation preserves this field.
-- Every terminal path publishes every output variable. Taking a transition from a failed task marks that source failure handled; add a later failing action or other explicit failure mechanism when the parent must remain failed.
-- Nested workflow actions and cross-pack task actions are documented dependencies.
-
-Preferred transition style:
-
-```yaml
-tasks:
-  - name: fetch
-    action: my_pack.fetch
-    input:
-      id: "{{ parameters.id }}"
-    next:
-      - when: "{{ succeeded() }}"
-        publish:
-          - item: "{{ result().item }}"
-        do:
-          - process
-      - when: "{{ failed() }}"
-        do:
-          - notify_failure
-```
-
-For result branching after a successful task, include the status in each decision condition: use complementary predicates such as `{{ succeeded() and result().approved == true }}` and `{{ succeeded() and result().approved != true }}`, plus separate `failed()` and `timed_out()` transitions. All matching transitions can fire, so every branch predicate must be mutually exclusive unless fan-out is intentional.
-
-### 6. Sensor and Trigger Checks
-
-For each trigger:
-
-- `parameters` describe trigger instance config.
-- `output` describes the event payload emitted by sensors.
-- Required fields are marked with `required: true` in the flat schema style.
-- Examples show valid trigger config and emitted payloads.
-
-For each sensor:
-
-- `trigger_types` all exist.
-- `runner_type` resolves to an available runtime; native binaries exist and are executable.
-- The sensor can run continuously, handle shutdown, and avoid busy loops.
-- Poll intervals and backoff behavior are safe.
-- Sensor output/events match trigger `output` payload fields.
-- Logs redact secrets and do not emit credentials in stdout/stderr.
-- Placement fields match intended sensor workers.
-- Tests cover startup validation and at least one generated payload without relying on live external services unless explicitly allowed.
-
-### 7. Work Queue Checks
-
-For each `queues/*.yaml`:
-
-- Queue ref is unique and pack-qualified.
-- `dispatch_action` exists.
-- `item_schema` validates real queue item payloads.
-- `action_params` render correctly using `item`, `items`, `queue_item`, `queue_items`, `queue`, and `config` namespaces as applicable.
-- Batch mode, priority, retry limit, coalescing, and sequential cooldown are intentional.
-- The dispatch action returns the expected `queue_ack` contract when the queue requires item-level acknowledgement.
-- Tests include at least one single-item and, if enabled, one batch dispatch mapping.
-
-### 8. Test Suite Checks
-
-- `testing.enabled: true` for publish candidates.
-- Runner entry points exist and are executable/readable.
-- Use implemented runner types: `script`, `unittest`, or `pytest`.
-- Use `result_format: simple` unless the target Attune version proves another parser works.
-- Test output contains `Total Tests:`, `Passed:`, `Failed:`, and optionally `Skipped:`.
-- `min_pass_rate` is normally `1.0`; `on_failure` is normally `block`.
-- Tests cover happy paths, invalid inputs, missing dependencies, schema/metadata validation, file permissions, rule mapping samples, workflow graph loading, and sensor payload samples.
-- Tests do not require real secrets. Use mocks, local fixtures, or explicit opt-in for network calls.
-- Tests do not write into read-only pack directories except controlled local test artifacts that are ignored from uploads.
-- Machine-readable validation retains `status`/`failed` diagnostics and relies on the CLI's nonzero failed-test exit.
-
-Simple shell runner pattern:
-
-```bash
-#!/bin/sh
-set -eu
-TOTAL=0
-PASSED=0
-FAILED=0
-
-run() {
-  name="$1"; shift
-  TOTAL=$((TOTAL + 1))
-  if "$@"; then
-    PASSED=$((PASSED + 1))
-    printf 'PASS %s\n' "$name"
-  else
-    FAILED=$((FAILED + 1))
-    printf 'FAIL %s\n' "$name"
-  fi
-}
-
-run "metadata parses" python3 -c 'import yaml; yaml.safe_load(open("pack.yaml"))'
-
-printf 'Total Tests: %s\n' "$TOTAL"
-printf 'Passed: %s\n' "$PASSED"
-printf 'Failed: %s\n' "$FAILED"
-printf 'Skipped: 0\n'
-[ "$FAILED" -eq 0 ]
-```
-
-## CLI Smoke Test Flow
-
-Use safe sample data only. Prefer the least invasive flow that proves the claim.
-
-```bash
-# 1. Authenticate with a test account or token.
-attune auth login
-# or
-attune auth token-login --token 'attune_it_redacted_example'
-
-# 2. Static/local test before touching the server.
-attune --output json pack check ./packs/my_pack
-attune pack test ./packs/my_pack --detailed
-
-# 3. Upload when the API may not see your local filesystem.
-attune pack upload ./packs/my_pack --force
-
-# 4. Register only for paths visible to the API process/container.
-attune pack register /opt/attune/packs/my_pack --force
-
-# 5. Run representative actions.
-attune action show my_pack.my_action
-attune action execute my_pack.my_action --params-json '{"sample":"safe"}' --watch --timeout 120
-
-# 6. Inspect runtime outcome.
-attune execution list --limit 10
-attune execution show <execution_id>
-```
-
-Use `--skip-tests` only to isolate upload/register mechanics or during early iteration. Do not call a pack publish-ready if tests were skipped or forced past failure.
-
-Treat every component loader warning as a failed release gate. A bad `workflow_file` can leave a runtime-less action unlinked, and standalone workflow definitions are not tracked by the recorded stale-cleanup ref set; removed standalone workflows may need explicit cleanup.
-
-For event-driven smoke tests, verify this chain with a harmless rule or timer-like trigger:
-
-```text
-Sensor -> Event -> Rule -> Enforcement -> Execution -> Worker -> Action
-```
-
-If using direct API calls, authenticate, create or enable a rule with safe trigger parameters, wait for events/executions, inspect failures, then disable or delete the test rule.
-
-## Upload/Register Distinction
-
-- Use `attune pack upload ./local_pack` when the pack is on the operator's machine. The CLI creates an archive and posts it to `/api/v1/packs/upload`.
-- Use `attune pack register /server/visible/path` only when the API server can read that path. In Docker, paths commonly need to be under a mounted pack directory such as `/opt/attune/packs/...`.
-- Both paths require a valid `pack.yaml`.
-- Both paths can take `--force` and `--skip-tests`.
-- `--force` means reinstall/update even if the pack exists and continue despite test failure.
-- `--skip-tests` means tests are not executed and no test result should be treated as proof.
-- Upload archives are safety-checked on the server; avoid symlinks, path traversal, devices, oversized files, and hidden generated content.
-- `pack register` returns the expected install response. After an ambiguous network failure, use `pack show PACK_REF` before deciding whether to retry.
-
-## Artifact, Key, and Redaction Safety
-
-- Never include real tokens, passwords, API keys, private URLs, customer names, or production payloads in examples, fixtures, logs, or artifacts.
-- Mark secret parameters with `secret: true`.
-- Prefer placeholders such as `REDACTED_API_TOKEN`, `example.invalid`, and `user@example.invalid`.
-- Do not print full request headers, `Authorization`, cookies, decrypted key values, or execution-scoped API tokens.
-- Artifact examples should be synthetic and safe to retain.
-- File artifacts should use predictable test names and cleanup paths; do not upload local secret files.
-- If a test must prove redaction, assert that sensitive values are absent from stdout, stderr, JSON result, and generated artifacts.
-
-Redaction checklist:
-
-```text
-[ ] No plaintext secrets in YAML, README, tests, fixtures, snapshots, or command history.
-[ ] Secret-like params are marked secret: true.
-[ ] Logs redact Authorization, Cookie, X-API-Key, tokens, passwords, and key values.
-[ ] Test payloads use synthetic data.
-[ ] Artifacts do not contain credentials or proprietary content.
-```
-
-## Reporting Format
-
-Group findings by severity:
-
-- Blocker: prevents safe upload/register/execution or leaks secrets.
-- Warning: likely runtime/test failure or confusing behavior.
-- Suggestion: hardening, maintainability, or additional coverage.
-
-Each finding should include:
-
-- File path and line/section when available.
-- What is wrong.
-- Why it matters in Attune.
-- Minimal safe fix.
-- Validation command or test to prove the fix.
-
-End with:
-
-- Commands run and whether they passed, failed, were skipped, or were not allowed.
-- Any behavior not verified.
-- Whether the pack is publish-ready.
-
-## Quality Gate
-
-A pack is publish-ready when:
-
-- `pack.yaml` is complete, versioned, and has valid testing configuration.
-- Component refs are consistent and all referenced files exist.
-- Action schemas match implementation behavior and tests.
-- Runtime dependencies are declared, installable, and tested.
-- Sensors emit payloads compatible with triggers.
-- Rules map real event payload fields to valid action parameters.
-- Workflows have valid graph edges, conditions, task inputs, and output mapping.
-- Queues dispatch valid action params and acknowledge items correctly when applicable.
-- Tests cover success, failure, edge cases, dependency checks, and packaging behavior.
-- CLI/API smoke tests pass with redacted sample data, when an Attune environment is available.
-- Upload/register behavior is understood and documented.
-- Secrets are redacted and secret parameters are marked `secret: true`.
-
-## Invocation Examples
-
-```text
-Use the Attune Pack Test Reviewer to review packs/acme_incident before publish. Run static checks and pack tests, but do not contact external services.
-```
-
-```text
-Act as Attune Pack Test Reviewer. Diagnose why attune pack register ./packs/slack fails during tests and propose minimal fixes.
-```
-
-```text
-Review this pack's rules and workflows for payload mapping and graph consistency. Assume secrets are unavailable; use placeholders only.
-```
-
-## Failure Modes to Avoid
-
-- Treating YAML syntax success as a full pack review.
-- Ignoring refs that point outside the pack or to missing components.
-- Assuming tests passed when they were skipped or forced.
-- Recommending unsupported test runner/result formats without version verification.
-- Using real tokens, passwords, webhook secrets, or customer payloads in examples.
-- Logging action parameters marked secret.
-- Relying on external services for deterministic tests without mocks or opt-in.
-- Confusing local filesystem registration with Docker API-visible registration.
-- Accepting legacy or inconsistent schema formats without noting risk.
-- Missing sensor-to-trigger, rule-to-action, queue-to-action, or workflow graph mismatches.
-- Modifying unrelated project files while reviewing a pack.
+End with blockers/warnings/suggestions, exact commands and results, unavailable runtime checks, and whether the chosen release is publish-ready. Parser acceptance or historical pass counts alone cannot satisfy that verdict.
