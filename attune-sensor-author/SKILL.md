@@ -28,9 +28,21 @@ The published sensor guide still describes an older environment startup snapshot
 
 1. Establish source API, credentials, event/config schemas, per-rule versus shared settings, polling/subscription model, deduplication, and shutdown behavior.
 2. Choose a supported runtime and placement. Resolve all trigger refs before writing the process.
-3. Implement the startup bootstrap and notifier lifecycle, then event creation and transient-error backoff.
-4. Test bootstrap validation, emitted payloads, targeting, create/update/disable/delete, token expiry/fencing, restart, and secret-safe logs.
+3. Choose the implementation structure below, then implement the startup bootstrap and notifier lifecycle, event creation, and transient-error backoff.
+4. Test detection and processing decisions independently of Attune, plus bootstrap validation, emitted payloads, targeting, create/update/disable/delete, token expiry/fencing, restart, resource cleanup, and secret-safe logs.
 5. Run offline pack validation and tests, then a permitted managed-process smoke test. Report any missing service-level evidence.
+
+## Implementation structure
+
+Keep simple Python sensors relatively self-contained in one implementation file. For complex sensors, use the module named by `entry_point` as a thin Attune adapter and put substantive detection and processing logic in imported modules. Split by complexity of the decisions and state handling rather than a fixed line count; a small sensor does not need an abstraction framework.
+
+The adapter owns bootstrap and configuration translation, notifier/rule lifecycle updates, permitted credential resolution, Attune API calls, event emission and targeting, and shutdown. It also uses resolved credentials and configuration to establish authenticated database connections, API sessions, subscriptions, or other service clients. Pass ready-to-use clients or narrowly scoped operations into process functions. Keep connection setup, authentication, reconnection/backoff mechanics, and teardown in the adapter, including cleanup on failure and cancellation. Preserve the SDK's base lifecycle behavior when implementing hooks; use only the credential access paths authorized for the target sensor contract.
+
+Process modules interpret source data, detect meaningful changes, apply filtering and deduplication rules, and decide which event candidates to produce. Give them explicit configuration, data, state, and dependencies rather than having them read bootstrap, inspect process environment, resolve Attune Keys, or use global SDK clients. Keep decisions pure where practical; when processing interleaves I/O and decisions, inject clients or callbacks so the process code can request operations without managing authentication or Attune lifecycle details.
+
+Process modules may own domain state and checkpoint semantics; they do not have to be stateless. The adapter manages state lifetime across rule updates and shutdown and performs persistence through the appropriate storage integration. For example, it can fetch source records, pass them and a prior checkpoint to a process function, then emit the returned event candidates and persist the next checkpoint. Define the ordering and failure behavior of emission and checkpoint persistence explicitly so a failed emission does not silently advance past undelivered events; account for replay and duplicate delivery.
+
+Keep supporting modules importable using the materialized pack's existing Python layout and runtime. Imports should not start a sensor or open connections; guard executable entrypoint code where appropriate. Test process decisions directly with ordinary inputs, explicit state, and fakes. Test the adapter separately for lifecycle/configuration changes, authenticated resource setup and reconnection, event targeting, persistence failure/replay behavior, and cleanup on shutdown or failure. Simple sensors can retain their tests around the single module.
 
 ## Trigger metadata
 

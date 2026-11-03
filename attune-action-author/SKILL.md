@@ -30,9 +30,23 @@ When source is available, inspect `crates/common/src/pack_registry/loader.rs`, `
 
 1. Establish the pack/action ref, external API contract, input/output fields, runtime, dependencies, timeout, and intended side effects.
 2. Define the metadata before implementation. Decide which fields may contain secrets and whether API access is actually needed.
-3. Implement parsing, boundary validation, serialization, failure handling, and cleanup. Make retried side effects idempotent where possible.
-4. Test success, empty input, missing/invalid fields, API failure, timeout, output shape, and secret absence.
+3. Choose the implementation structure below, then implement parsing, boundary validation, serialization, failure handling, and cleanup. Make retried side effects idempotent where possible.
+4. Test process decisions independently of Attune, plus the entrypoint's input/output and integration behavior: success, empty input, missing/invalid fields, API failure, timeout, output shape, and secret absence.
 5. Run offline `pack check`, then declared pack tests. Run a server smoke test only when permitted; inspect the actual execution outcome.
+
+## Implementation structure
+
+Apply this structure to actions in every language, using the language's normal module, dependency, and resource-management conventions. Keep simple actions relatively self-contained in a single implementation file where practical. Split an action when its process rules, branching, or multi-step decisions become substantial enough to benefit from independent reasoning and testing; complexity, rather than a fixed line count, should drive the choice.
+
+For complex actions, use the module named by `entry_point` as a thin Attune adapter. It reads action parameters and permitted process environment, resolves required Attune Keys and secrets with the declared authority, and performs the bulk of Attune API calls. It translates those inputs into explicit function arguments, calls functions imported from other modules, applies their results through Attune where needed, and handles action output and exit behavior. Keep substantive process decisions in the imported modules.
+
+Keep that adapter orchestration directly in the declared entrypoint module so a reader can see which inputs, environment settings, credentials, connections, and process functions the action uses, and how cleanup and output happen. Do not make it a forwarding stub that calls a shared library's `main`, `run_pipeline`, or bootstrap helper which performs the real entrypoint work. In particular, do not move credential loading or environment discovery into a helper merely to shorten the entrypoint. SDK calls and focused utilities are appropriate, but keep the choice and sequence of configuration reads, credential resolution, resource construction, and process invocation explicit at the entrypoint. A shared pipeline should receive prepared inputs and dependencies rather than become the action's hidden entrypoint.
+
+The adapter also owns authenticated resource setup and teardown: use the resolved configuration and credentials to open database connections, configure authenticated API sessions, or construct other service clients. Pass ready-to-use connections, clients, or narrowly scoped operations into the process functions rather than requiring those functions to retrieve credentials or assemble connections. Manage resource lifetimes around those calls with the language's context/resource scopes, `try`/`finally`, deferred cleanup, or equivalent mechanisms, including cleanup on failure. Keep process decisions such as when a transaction should commit or roll back in the process layer, while the adapter owns connection lifecycle mechanics.
+
+Those modules should accept ordinary data values or explicit dependencies and return results or decisions. Avoid having them discover execution context through process environment, read Attune Keys, or use a global Attune SDK client. Keep decision logic pure where practical. When a process must interleave decisions and I/O, pass ready-to-use clients or narrowly scoped callbacks/interfaces so the process code can request operations without owning authentication, connection setup/teardown, or Attune API details. Do not introduce an abstraction framework for a small action.
+
+Keep supporting modules available in the materialized pack or packaged executable using the language's existing layout, build, and runtime conventions. Importing, loading, or initializing a process module should not start an action or perform API calls; keep execution in the language's explicit entrypoint mechanism. Test complex process logic directly with ordinary inputs and explicit fakes, then test the adapter's context resolution, authenticated resource setup, cleanup on success and failure, API interactions, and output separately. Simple actions can retain their tests around the single module.
 
 ## Normal action metadata
 
